@@ -1,0 +1,133 @@
+MXIM: Maxim Integrated
+WCG: WellCare
+HFC: HollyFrontier
+DWDP: DowDuPont Inc.
+Q: Qwest Communications
+DRE: Duke Realty
+INFO: IHS Markit
+FBHS: Fortune Brands Home & Security
+CXO: Concho Resources
+WLTW: Willis Towers Watson
+CPGX: Columbia Pipeline Group
+BXLT: Baxalta
+LVLT: Level 3 Communications
+DISCK: Discovery Communications
+XEC: Cimarex Energy
+GMCR: Keurig Green Mountain
+ADS: Alliance Data Systems
+GGP: GGP
+KORS: Michael Kors
+NLSN: Nielsen Holdings
+KSU: Kansas City Southern
+DLPH: Delphi Automotive
+KRFT: Kraft Foods
+ESV: Ensco
+ALXN: Alexion Pharmaceuticals
+WPX: WPX Energy
+JOYG: Joy Global
+CVC: Cablevision Systems
+TYC: Tyco International
+QEP: QEP Resources
+CERN: Cerner
+MJN: Mead Johnson
+PCLN: Priceline.com
+ARG: Airgas
+HRS: Harris Corporation
+AKS: AK Steel
+COG: Cabot Oil & Gas
+LO: Lorillard Tobacco Company
+JEC: Jacobs Engineering Group
+TSO: Tesoro Corporation
+LUK: Leucadia National
+KFT: Kraft Foods
+JDSU: JDS Uniphase
+YHOO: Yahoo!
+WLP: Wellpoint
+CTXS: Citrix Systems
+PBCT: People's United Financial
+XLNX: Xilinx
+FLIR: FLIR Systems
+VAR: Varian Medical Systems
+TIF: Tiffany & Co
+NBL: Noble Energy
+ETFC: E-Trade
+AGN: Allergan
+RTN: Raytheon Company
+STI: SunTrust Banks
+VIAB: Viacom
+CELG: Celgene
+TSS: TSYS
+APC: Anadarko Petroleum
+RHT: Red Hat
+LLL: L3 Technologies
+XL: XL Group
+DPS: Dr Pepper Snapple Group
+MON: Monsanto
+WYN: Wyndham Worldwide
+BCR: CR Bard
+SPLS: Staples
+WFM: Whole Foods Market
+RAI: Reynolds American
+FTR: Frontier Communications
+LLTC: Linear Technology
+STJ: St Jude Medical
+LM: Legg Mason
+TE: TECO Energy
+TWC: Time Warner Cable
+SNDK: SanDisk
+CAM: Cameron International
+BRCM: Broadcom Corporation
+SIAL: Sigma-Aldrich
+HCBK: Hudson City Bancorp
+JOY: Joy Global
+HSP: Hospira
+DTV: DirecTV
+FDO: Family Dollar
+WIN: Windstream Communications
+DNR: Denbury Resources
+AVP: Avon Products
+CFN: Carefusion
+SWY: Safeway
+RDC: Rowan Companies
+FRX: Forest Laboratories
+JCP: JCPenney
+APOL: Apollo Education Group
+DF: Dean Foods
+PCS: MetroPCS
+FII: Federated Investors
+RRD: RR Donnelley
+LXK: Lexmark
+PGN: Progress Energy
+NVLS: Novellus Systems
+MHS: Medco Health Solutions
+MWW: Monster Worldwide
+JNS: Janus Capital Group
+CEPH: Cephalon
+NOVL: Novell
+GENZ: Genzyme
+EK: Eastman Kodak
+MIL: Millipore
+XTO: XTO Energy
+BJS: BJ Services
+ACAS: American Capital
+LEH: Lehman Brothers
+FRE: Freddie Mac
+FNM: Fannie Mae
+DJ: Dow Jones
+AV: Avaya
+FDC: First Data
+KSE: KeySpan
+TSG: Sabre Corporation
+ABS: Albertsons
+GLK: Great Lakes Chemical
+QTRN: Quintiles Transnational
+BS: Bethlehem Steel
+GRA: WR Grace
+CCK: Crown Holdings
+RAD: RiteAid
+TMC: Times Mirror
+SMS: Shared Medical Systems
+LDW: Laidlaw
+HPH: Harnischfeger Industries
+GRN: General Re
+USL: USLife
