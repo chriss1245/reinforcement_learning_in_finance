@@ -1,0 +1,19 @@
+# Data files
+data
+
+# Regular expression denoting files to ignore
+ignore_*
+
+# Python egg
+*.egg
+*.egg-info
+
+# Python .pyc
+*.pyc
+
+# cached files
+.ipynb_checkpoints
+__pycache__
+
+#vscode
+.vscode
