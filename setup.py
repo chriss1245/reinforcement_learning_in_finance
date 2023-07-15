@@ -5,10 +5,10 @@ import io
 # Package meta-data.
 NAME = "portfolio-management-rl"
 DESCRIPTION = "My short description for my project."
-URL = "https://github.com/me/myproject"
-EMAIL = "me@example.com"
-AUTHOR = "Awesome Soul"
-REQUIRES_PYTHON = ">=3.6.0"
+URL = "https://github.com/chriss1245/"
+EMAIL = "christopher.manzano.vimos@gmail.com"
+AUTHOR = "Christopher Manzano"
+REQUIRES_PYTHON = ">=3.10.0"
 VERSION = "23.7.16"
 
 # What packages are required for this module to be executed?
