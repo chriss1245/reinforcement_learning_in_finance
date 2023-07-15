@@ -3,7 +3,7 @@ import pandas as pd
 from torch.utils.data import Dataset
 import gym
 
-from utils import PortfolioDistributionSpace
+from .utils import PortfolioDistributionSpace
 
 class StocksDataset(Dataset):
     """
