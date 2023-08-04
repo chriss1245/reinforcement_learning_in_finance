@@ -1,4 +1,6 @@
-
+"""
+Datasets
+"""
 import pandas as pd
 from torch.utils.data import Dataset
 import gym
@@ -39,7 +41,7 @@ class StocksDataset(Dataset):
         """
         return self.companies
 
-    def get_action_observation_space(self):
+    def get_action_observation_space(self) -> (gym.spaces.Box, gym.spaces.Box):
         """
         Returns the action and observation space for the environment.
         """
