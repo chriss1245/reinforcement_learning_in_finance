@@ -1,36 +1,134 @@
 """
-This module emulates the market. It offers an interface to the agent to get the current state of the market and to execute
-actions on the market.
+This module emulates the market. It offers an interface to the agent to get the current state
+of the market and to execute actions on the market.
 """
 
+from pathlib import Path
+from tabnanny import verbose
+from typing import Any, Optional, Tuple
 import pandas as pd
 import numpy as np
 import datetime
 import gym
 from enum import Enum
 from torch.utils.data import Dataset
+from dataclasses import dataclass, field, asdict
+from logging import getLogger
+
+from portfolio_management_rl.datasets.utils import PortfolioDistributionSpace
 
 
-# Strategy pattern used to define the comission type
-class BalanceUpdater():
+@dataclass(slots=True)
+class MarketEnvState():
     """
-    Abstract class for the update balance strategy.
-    """
+    State of the market environment.
 
-    def update(self, balance: float, previous_proportion: np.ndarray, new_proportion: np.ndarray) -> float:
+    Attributes:
+        balance (float): Current balance (in the base currency)
+        history (np.ndarray): History of the market (in the base currency).
+        portfolio (np.ndarray): Quantity of stocks.
+        done (bool): Whether the episode is done or not.
+    """
+    balance: float
+    history: np.ndarray
+    portfolio: np.ndarray
+    done: bool = False
+
+    def __iter__(self):
         """
-        Updates the balance.
+        Iterates over the state. This is useful to convert the state to a dictionary.
+        """
+        return iter(asdict(self).items())
+
+    def copy(self):
+        """
+        Returns a copy of the state.
+        """
+        return MarketEnvState(**asdict(self))
+
+    @staticmethod
+    def from_dict(state_dict: dict):
+        """
+        Creates a state from a dictionary.
+
+        Args:
+            state_dict (dict): Dictionary containing the state.
+
+        Returns:
+            MarketEnvState: State of the market environment.
+        """
+        return MarketEnvState(**state_dict)
+
+    @property
+    def prices(self) -> np.ndarray:
+        """
+        Returns the prices of the stocks.
+
+        Returns:
+            np.ndarray: Prices of the stocks.
+        """
+        return self.history[:, -1]
+
+    @property
+    def investment(self) -> float:
+        """
+        Returns the investment of the portfolio.
+
+        Returns:
+            float: Investment of the portfolio.
+        """
+        return self.portfolio.dot(self.prices)
+
+    @property
+    def net_worth(self) -> float:
+        """
+        Returns the net worth of the portfolio.
+
+        Returns:
+            float: Net worth of the portfolio.
+        """
+        return self.balance + self.investment
+
+    @property
+    def net_distribution(self) -> np.ndarray:
+        """
+        Returns the distribution of the portfolio (including the balance).
+
+        Returns:
+            np.ndarray: Distribution of the portfolio (including the balance)
+        """
+
+        temp = self.portfolio * self.prices
+        return np.append(temp, self.balance) / self.net_worth
+
+# Strategy pattern used to define the different Brokers (Trading212, Degiro, ...)
+class Broker():
+    """
+    Base broker class
+    """
+
+    def buy(self, market_state: MarketEnvState, quantity: np.ndarray) -> np.ndarray:
+        """
+        Buys stocks.
 
         Args:
             balance (float): Current balance.
-            transaction_cost (float): Transaction cost.
 
         Returns:
-            float: Updated balance.
+            np.ndarray: Bought stocks.
         """
         raise NotImplementedError
 
-class BalanceUpdaterTrading212(BalanceUpdater):
+    def sell(self, market_state: MarketEnvState, quantity: np.ndarray) -> float:
+        """
+        Sell stocks by a given quatity
+
+        Args:
+            quamtity (np.ndarray): Quantity of stocks to sell.
+        """
+        raise NotImplementedError
+
+class Trading212(Broker):
     """
     Trading 212 at july 1st does not charge comission for buying and selling stocks.
     However, it charges a 0.5% comission for converting the profit to the base currency.
@@ -45,92 +143,138 @@ class BalanceUpdaterTrading212(BalanceUpdater):
         """
         self.profit_proportion = profit_commision_percent / 100
 
-    def update(self, balance: float, previous_proportion: np.ndarray, new_proportion: np.ndarray) -> float:
+    def buy(self, market_state: MarketEnvState, quantity: np.ndarray) -> None:
         """
-        Updates the balance.
+        Buys stocks. Adding the stocks to the portfolio and substracting the money from the balance.
 
         Args:
             balance (float): Current balance.
-            transaction_cost (float): Transaction cost.
 
         Returns:
-            float: Updated balance.
+            np.ndarray: Bought stocks.
         """
-        profit = new_proportion[:-1] - previous_proportion [:-1] # last element means not invests
-        close_operations = profit < 0 # operations that are closing (selling)
-        comissions = np.sum(np.abs(profit[close_operations]) * self.profit_proportion) # (defult 0.5%) comission for closing operations
-        return balance + np.sum(profit) - np.sum(comissions)
+        total_price = quantity.dot(market_state.prices) # total price of the stocks to buy
+
+        if total_price > market_state.balance:
+            raise ValueError("Not enough balance to buy the stocks.")
+
+        market_state.balance -= total_price
+        market_state.portfolio += quantity
+
+    def sell(self, market_state: MarketEnvState, quantity: np.ndarray) -> None:
+        """
+        Sell stocks by a given quatity
+
+        Args:
+            quamtity (np.ndarray): Quantity of stocks to sell.
+        
+        Returns:
+            float: Money earned by selling the stocks.
+        """
+
+        if np.any(quantity > market_state.portfolio):
+            raise ValueError("Not enough stocks to sell.")
+
+        total_price = quantity.dot(market_state.prices) # total price of the stocks to sell
+        market_state.balance += total_price * (1 - self.profit_proportion)
 
 
-class MarketEnvironmnet(gym.Env):
+class MarketEnv(gym.Env):
     """
     Market environment. Simulates the market and offers an interface to the agent to get the current state
     of the market and to execute actions on the market.
     """
 
-    def __init__(self, dataset: Dataset, observation_space: gym.spaces.Box, action_space: gym.spaces.Box = PortfolioDistributionSpace(),
+    def __init__(self, dataset: Dataset,
         initial_balance: float = 10000,
-        balance_updater: BalanceUpdater =BalanceUpdaterTrading212())
+        broker: Broker = Trading212(),
+        experiment_logdir: Optional[Path] = None,
+        ):
         """
         Market environment. Simulates the market and offers an interface for
         portfolio management agents to get the current state of the market ands
         to execute actions on the market.
 
         Args:
-            data (pd.DataFrame): Dataframe containing the market data.
-            initial_date (datetime.datetime): Initial date of the market.
-            step_size (int): Number of days to move forward in time when
-                calling step().
-            observation_horizon_days (int): Number of days to use as the
-                observation horizon.
-            
-            initial_balance (float): Initial balance of the portfolio.
-            transaction_cost (float): Transaction cost of the market.
+            dataset (Dataset): Dataset containing the market data.
+            initial_balance (float, optional): Initial balance. Defaults to 10000.
+            broker (Broker, optional): Broker to use. Defaults to Trading212().
+            experiment_logdir (Optional[str], optional): Path to store the experiments logs. Defaults to None.
         """
 
         # data generator
         self.dataset = dataset
+        self.broker = broker
+        portfolio = np.zeros(shape=(self.dataset.action_space.shape[0],)) #type: ignore
 
-        # balance
-        self.initial_balance = initial_balance
-        self.balance = initial_balance
-        self.balance_updater = balance_updater
+        # Market States
+        self.initial_state = MarketEnvState(
+            balance=initial_balance,
+            history=np.zeros(shape=self.dataset.observation_space.shape), #type: ignore
+            portfolio=portfolio,
+            done=False)
 
-        # action space and observation space
-        self.observation_space = observation_space
-        self.action_space = action_space
+        self.last_state = None
+        self.current_state = self.initial_state
 
-        # initialize the last action to not invest
-        self.last_action = np.zeros(shape=(self.action_space.shape[0],))
-        self.last_action[-1] = 1 # last element means not invests
-        
+        # History
+        self.logdir = experiment_logdir
 
+        #iterations
+        self.iteration = 0
+
+    def render(self, mode: str = 'human') -> None:
+        """
+        Renders the current state of the market environment.
+
+        Args:
+            mode (str, optional): Mode of the rendering. Defaults to 'human'.
+        """
+        raise NotImplementedError
 
     def reset(self):
         """
         Resets the market environment to its initial state.
         """
-        self.balance = self.initial_balance
-        self.last_balance = self.initial_balance
-        self.last_action = np.zeros(shape=(self.action_space.shape[0],))
-        self.last_action[-1] = 1 # last element means not invests
+        self.current_state = self.initial_state
+        self.last_state = None
+        self.iteration = 0
 
-        self.current_observation, self.next_observation = self.dataset[0]
-        
-        return self.current_observation
-
-
-    def reward(self, balance: float,  action: dict) -> float:
+    def store(self, action: np.ndarray, reward: float, done: bool) -> None:
         """
-        Calculates the reward obtained by executing an action.
+        Stores the current state of the market environment if a logdir is provided.
 
+        Args:
+            action (np.ndarray): Action executed on the market.
+            reward (float): Reward obtained by the action.
+            done (bool): Whether the episode is finished or not.
         """
 
-        new_balance = self.balance_updater.update(self.balance, self.current_observation, action["action"])
-        return new_balance/self.initial_balance # MAPE
-        
+        if self.logdir is not None:
+            raise NotImplementedError
 
-    def step(self, action: dict):
+    def get_reward(self) -> float:
+        """
+        Reward method for the market environment.
+
+        Args:
+            previous_state (MarketEnvState): Previous state of the market environment.
+            next_state (MarketEnvState): Next state of the market environment.
+            action (np.ndarray): Action executed on the market.
+        """
+
+        # MAPE profit prior to the update
+        previous_gain = (self.last_state.net_worth - self.initial_state.net_worth) / self.initial_state.net_worth
+
+        # MAPE profit after the update
+        next_gain = (self.current_state.net_worth - self.initial_state.net_worth) / self.initial_state.net_worth
+
+        # Regularization term (avoid that much changes in the portfolio)
+        #regularization = np.mean(np.abs(next_state.portfolio_distribution - previous_state.portfolio_distribution))
+
+        return next_gain - previous_gain # - regularization
+
+    def step(self, action: dict[str, Any]) -> Tuple[np.ndarray, float, bool]:
         """
         Executes an action on the market. Returns the next observation, the reward
         and whether the episode has ended.
@@ -138,12 +282,8 @@ class MarketEnvironmnet(gym.Env):
         reward = (future_balance - current_balance)/initial_balance - transaction_cost
 
         Args:
-            action (dict): Dictionary containing the new action, and whether execute
-                the action or not.
-                {
-                    "action": [0.1, 0.3, 0.6],
-                    "execute": Trues
-                }
+            action (np.ndarray): Dictionary containing the new action, and whether execute
+                the action or not
         
         Returns:
             observation (np.array): The next observation.
@@ -151,17 +291,44 @@ class MarketEnvironmnet(gym.Env):
             done (bool): Whether the episode has ended.
         """
 
-        if action["execute"]:
+        observation = self.dataset[self.iteration]
 
+        # update the state
+        self.last_state = self.current_state.copy()
+        self.current_state = MarketEnvState(
+            balance=self.current_state.balance,
+            history=observation,
+            portfolio=self.current_state.portfolio,
+            done=False)
 
-        else:
-            reward = 0
+        # execute the action
+        difference =  self.current_state.net_distribution - action['distribution']
 
-        # Update the observation
-        self.current_observation = self.next_observation
-        self.next_observation = self.dataset[self.current_observation]
+        # sell
+        sell = np.zeros_like(difference)
+        sell[difference < 0] = -difference[difference < 0]
+        sell = self.current_state.net_worth  * sell / self.current_state.prices # covert to quantity
+        self.broker.sell(self.current_state, sell)
+
+        # buy
+        buy = np.zeros_like(difference)
+        buy[difference > 0] = difference[difference > 0]
+        # normalize the buy vector to add up to 1
+        # (because selling is alters the net worth because of the transaction cost)
+        buy = np.normalize(buy, norm=1)
+        buy = self.current_state.balance * buy / self.current_state.prices # covert to quantity
+        self.broker.buy(self.current_state, buy)
+
+        # reward
+        reward = self.get_reward()
 
         # Check if the episode has ended
-        done = self.current_observation == len(self.dataset) - 1
+        done = self.iteration == len(self.dataset) - 1
 
-        return self.current_observation, reward, done
+        if done:
+            self.current_state.done = True
+            reward = self.get_reward()
+
+        self.iteration += 1
+
+        return self.current_state, reward, done
