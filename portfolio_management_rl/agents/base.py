@@ -3,23 +3,21 @@ This module contains the base agent class that all other agents inherit from.
 """
 
 from abc import ABC
+from typing import Union
+
+import numpy as np
+from gym.spaces.dict import Dict
+from torch import Tensor
+
+from portfolio_management_rl.market_environment.market_env import MarketEnvState
 
 
-class BasePortfolioManager(ABC):
+class BaseAgent(ABC):
     """
     Base Agent. Defines the interface for all agents.
     """
 
-    def __init__(self, config: dict):
-        """
-        Initializes the agent.
-
-        Args:
-            config (dict): Configuration dictionary.
-        """
-        self.config = config
-
-    def action(self, state: dict) -> dict:
+    def action(self, state: MarketEnvState) -> Dict:
         """
         Takes in a state and returns an action.
 
@@ -32,7 +30,11 @@ class BasePortfolioManager(ABC):
         raise NotImplementedError
 
     def update(
-        self, state: dict, action: dict, reward: float, next_state: dict, done: bool
+        self,
+        state: MarketEnvState,
+        action: Dict,
+        reward: Union[float, np.ndarray, Tensor],
+        next_state: MarketEnvState,
     ) -> None:
         """
         Updates the agent.
@@ -42,22 +44,12 @@ class BasePortfolioManager(ABC):
             action (dict): Action dictionary.
             reward (float): Reward value.
             next_state (dict): Next state dictionary.
-            done (bool): Whether the episode is done.
-        """
-        raise NotImplementedError
-
-    def save(self, **kwargs) -> None:
-        """
-        Saves the agent.
-
-        Args:
-            path (str): Path to save the agent to.
         """
         raise NotImplementedError
 
     def log(self, **kwargs) -> None:
         """
-        Logs the agent.
+        Logs the agent in mlflow.
 
         Args:
             path (str): Path to log the agent to.
