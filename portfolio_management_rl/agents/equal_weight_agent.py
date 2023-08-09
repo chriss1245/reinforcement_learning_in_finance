@@ -12,6 +12,7 @@ from gym.spaces.dict import Dict
 from torch import Tensor
 
 from portfolio_management_rl.market_environment.market_env import MarketEnvState
+from portfolio_management_rl.utils.contstants import N_STOCKS
 
 from .base import BaseAgent
 
@@ -24,8 +25,6 @@ class EqualWeightAgent(BaseAgent):
 
     def __init__(
         self,
-        output_shape: tuple = (101,),
-        include_balance: bool = True,
         rebalance: bool = True,
     ):
         """
@@ -36,14 +35,12 @@ class EqualWeightAgent(BaseAgent):
             include_balance (bool): Whether to divide the weights with the balance as well
                 if true, (0.1, ..., 0.1, balance:=0.1) else (0.1, ..., 0.1, balance:=0)
         """
-        self.weights = np.ones(output_shape)
-        if not include_balance:
-            self.weights[-1] = 0
+        self.weights = np.ones(shape=(N_STOCKS + 1,))
+        self.weights[-1] = 0
         self.weights /= np.sum(self.weights)
 
-        self.output_shape = output_shape
-        self.include_balance = include_balance
         self.rebalance = rebalance
+        self.first_step = True
 
     @property
     def parameters(self) -> dict:
@@ -52,11 +49,10 @@ class EqualWeightAgent(BaseAgent):
         """
         return {
             "weights": self.weights,
-            "include_balance": self.include_balance,
             "rebalance": self.rebalance,
         }
 
-    def action(self, state: MarketEnvState) -> Dict:
+    def act(self, state: MarketEnvState) -> Dict:
         """
         Takes in a state and returns an action.
 
@@ -66,13 +62,14 @@ class EqualWeightAgent(BaseAgent):
         Returns:
             dict: Action dictionary.
         """
+        if self.first_step:
+            self.first_step = False
+            return {"distribution": state.net_distribution}
+
         if self.rebalance:
             return {"distribution": self.weights}
 
-        if self.include_balance:
-            return {"distribution": state.net_distribution}
-
-        return {"distribution": state.net_distribution[:-1]}
+        return {"distribution": state.net_distribution}
 
     def update(
         self,

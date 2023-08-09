@@ -17,7 +17,7 @@ class BaseAgent(ABC):
     Base Agent. Defines the interface for all agents.
     """
 
-    def action(self, state: MarketEnvState) -> Dict:
+    def act(self, state: MarketEnvState) -> Dict:
         """
         Takes in a state and returns an action.
 

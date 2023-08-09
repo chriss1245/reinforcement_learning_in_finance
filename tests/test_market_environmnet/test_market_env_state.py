@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from portfolio_management_rl.market_environment.commons import MarketEnvState
+from portfolio_management_rl.utils.contstants import N_STOCKS
 
 
 class TestMarketEnvState(TestCase):
@@ -20,8 +21,8 @@ class TestMarketEnvState(TestCase):
         """
         Sets up the test.
         """
-        self.history = np.ones(shape=(100, 2000))
-        self.portfolio = np.random.dirichlet(np.ones(101), size=1)[0]
+        self.history = np.ones(shape=(N_STOCKS, 2000))
+        self.portfolio = np.random.dirichlet(np.ones(N_STOCKS + 1), size=1)[0]
 
     def test_init(self):
         """
@@ -73,7 +74,7 @@ class TestMarketEnvState(TestCase):
             done=False,
         )
 
-        self.assertEqual(state.prices.shape, (100,))
+        self.assertEqual(state.prices.shape, (N_STOCKS,))
         self.assertTrue(np.all(state.prices == state.history[:, -1]))
 
     def test_shares(self):
@@ -86,7 +87,7 @@ class TestMarketEnvState(TestCase):
             done=False,
         )
 
-        self.assertEqual(state.shares.shape, (100,))
+        self.assertEqual(state.shares.shape, (N_STOCKS,))
         self.assertTrue(np.all(state.shares == state.portfolio[:-1]))
 
     def test_shares_setter(self):
@@ -99,9 +100,9 @@ class TestMarketEnvState(TestCase):
             done=False,
         )
 
-        state.shares = np.ones(shape=(100,))
-        self.assertTrue(np.all(state.shares == np.ones(shape=(100,))))
-        self.assertTrue(np.all(state.portfolio[:-1] == np.ones(shape=(100,))))
+        state.shares = np.ones(shape=(N_STOCKS,))
+        self.assertTrue(np.all(state.shares == np.ones(shape=(N_STOCKS,))))
+        self.assertTrue(np.all(state.portfolio[:-1] == np.ones(shape=(N_STOCKS,))))
 
     def test_copy(self):
         """
@@ -140,6 +141,19 @@ class TestMarketEnvState(TestCase):
 
         self.assertAlmostEqual(state.investment, np.sum(shares * prices), delta=1e-5)
 
+    def test_net_distribution(self):
+        """
+        Tests the net_distribution property. Which is the portfolio distribution including the cash or balance.
+        """
+
+        state = MarketEnvState(
+            history=self.history,
+            portfolio=self.portfolio,
+            done=False,
+        )
+
+        self.assertAlmostEqual(np.sum(state.net_distribution), 1.0, delta=1e-5)
+
 
 class TestTorchMarketEnvState(TestMarketEnvState):
     """
@@ -150,9 +164,9 @@ class TestTorchMarketEnvState(TestMarketEnvState):
         """
         Sets up the test.
         """
-        self.history = torch.ones(size=(100, 2000), dtype=torch.float32)
+        self.history = torch.ones(size=(N_STOCKS, 2000), dtype=torch.float32)
         self.portfolio = torch.from_numpy(
-            np.random.dirichlet(np.ones(101), size=1)[0]
+            np.random.dirichlet(np.ones(N_STOCKS + 1), size=1)[0]
         ).to(torch.float32)
 
     def test_prices(self):
@@ -165,7 +179,7 @@ class TestTorchMarketEnvState(TestMarketEnvState):
             done=False,
         )
 
-        self.assertEqual(state.prices.shape, (100,))
+        self.assertEqual(state.prices.shape, (N_STOCKS,))
         self.assertTrue(torch.all(state.prices == state.history[:, -1]))
 
     def test_shares(self):
@@ -178,7 +192,7 @@ class TestTorchMarketEnvState(TestMarketEnvState):
             done=False,
         )
 
-        self.assertEqual(state.shares.shape, (100,))
+        self.assertEqual(state.shares.shape, (N_STOCKS,))
         self.assertTrue(torch.all(state.shares == state.portfolio[:-1]))
 
     def test_shares_setter(self):
@@ -191,9 +205,9 @@ class TestTorchMarketEnvState(TestMarketEnvState):
             done=False,
         )
 
-        state.shares = torch.ones(size=(100,))
-        self.assertTrue(torch.all(state.shares == torch.ones(size=(100,))))
-        self.assertTrue(torch.all(state.portfolio[:-1] == torch.ones(size=(100,))))
+        state.shares = torch.ones(size=(N_STOCKS,))
+        self.assertTrue(torch.all(state.shares == torch.ones(size=(N_STOCKS,))))
+        self.assertTrue(torch.all(state.portfolio[:-1] == torch.ones(size=(N_STOCKS,))))
 
     def test_copy(self):
         """
