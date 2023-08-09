@@ -13,3 +13,5 @@ PACKAGE_DIR = PROJECT_DIR / "portfolio_managemaner_rl"
 DATA_DIR = PROJECT_DIR.parent / "data"
 
 MLFLOW_TRACKING_URI = (PROJECT_DIR / "mlflow").as_uri()
+
+N_STOCKS = 100
