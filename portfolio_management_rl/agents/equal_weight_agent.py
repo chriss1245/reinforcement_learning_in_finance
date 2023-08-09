@@ -24,7 +24,7 @@ class EqualWeightAgent(BaseAgent):
 
     def __init__(
         self,
-        output_shape: tuple = (1, 101),
+        output_shape: tuple = (101,),
         include_balance: bool = True,
         rebalance: bool = True,
     ):
