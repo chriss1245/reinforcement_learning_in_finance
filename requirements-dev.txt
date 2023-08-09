@@ -1,0 +1,12 @@
+gym
+numpy
+pandas
+matplotlib
+torch
+lightning
+pylint
+black
+coverage
+ipykernel
+mlflow
+PyPortfolioOpt
