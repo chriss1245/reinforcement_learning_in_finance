@@ -4,7 +4,7 @@ Class for brokers which are used to execute orders and calculate transaction cos
 
 import numpy as np
 
-from .market_env import MarketEnvState
+from .commons import MarketEnvState
 
 
 # Strategy pattern used to define the different Brokers (Trading212, Degiro, ...)
