@@ -55,7 +55,10 @@ class MarketEnvState:
         Returns:
             float: Balance of the portfolio.
         """
-        return self.portfolio[-1]
+        res = self.portfolio[-1]
+        if isinstance(res, torch.Tensor):
+            return res.item()
+        return res
 
     @balance.setter
     def balance(self, value: float):
@@ -68,7 +71,7 @@ class MarketEnvState:
         self.portfolio[-1] = value
 
     @property
-    def prices(self) -> np.ndarray:
+    def prices(self) -> np.ndarray | torch.Tensor:
         """
         Returns the prices of the market.
 
@@ -78,7 +81,7 @@ class MarketEnvState:
         return self.history[:, -1]
 
     @property
-    def shares(self) -> np.ndarray:
+    def shares(self) -> np.ndarray | torch.Tensor:
         """
         Returns the shares of the portfolio.
 
@@ -88,7 +91,7 @@ class MarketEnvState:
         return self.portfolio[:-1]
 
     @shares.setter
-    def shares(self, value: np.ndarray):
+    def shares(self, value: np.ndarray | torch.Tensor):
         """
         Sets the shares of the portfolio.
 
@@ -105,7 +108,10 @@ class MarketEnvState:
         Returns:
             float: Investment of the portfolio.
         """
-        return self.portfolio[:-1].dot(self.prices)
+        res = self.portfolio[:-1].dot(self.prices)
+        if isinstance(res, torch.Tensor):
+            return res.item()
+        return res
 
     @property
     def net_worth(self) -> float:
