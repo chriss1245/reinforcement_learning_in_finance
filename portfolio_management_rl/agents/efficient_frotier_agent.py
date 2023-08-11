@@ -56,8 +56,6 @@ class EfficientFrontierAgent(BaseAgent):
         self.objective_function = objective_function
 
         self.model: EfficientFrontier = None
-        self.expected_returns = None
-        self.risk_matrix = None  # usually covariance matrix
         self.weights = None
 
     @property
@@ -173,12 +171,12 @@ class EfficientFrontierAgent(BaseAgent):
             state (dict): State dictionary.
         """
 
-        self.expected_returns = self.compute_expected_returns(state.prices)
-        self.risk_matrix = self.compute_risk_matrix(state.prices)
+        expected_returns = self.compute_expected_returns(state.prices)
+        risk_matrix = self.compute_risk_matrix(state.prices)
 
         self.model = EfficientFrontier(
-            self.expected_returns,
-            self.risk_matrix,
+            expected_returns,
+            risk_matrix,
             weight_bounds=(0, 1),
         )
 

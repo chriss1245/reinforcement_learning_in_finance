@@ -44,7 +44,8 @@ class Trading212(Broker):
     However, it charges a 0.5% comission for converting the profit to the base currency.
     """
 
-    __epsilon__ = PRICE_EPSILON  # to avoid floating point errors  (the action price is greater than the current price as consequence)
+    # to avoid floating point errors  (the action price is greater than the current price as consequence)
+    __epsilon__ = PRICE_EPSILON
 
     def __init__(self, profit_commision_percent: float = 0.5):
         """

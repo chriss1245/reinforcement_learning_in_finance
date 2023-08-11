@@ -3,19 +3,14 @@ This module emulates the market. It offers an interface to the agent to get the 
 of the market and to execute actions on the market.
 """
 
-import datetime
-from dataclasses import asdict, dataclass, field
-from enum import Enum
-from logging import getLogger
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import gym
 import numpy as np
-import pandas as pd
 from torch.utils.data import Dataset
 
-from portfolio_management_rl.datasets.utils import PortfolioDistributionSpace
+from portfolio_management_rl.utils.contstants import N_STOCKS
 
 from .brokers import Broker, Trading212
 from .commons import MarketEnvState
@@ -49,14 +44,13 @@ class MarketEnv(gym.Env):
         # data generator
         self.dataset = dataset
         self.broker = broker
-        action_space, observation_space = dataset.get_action_observation_space()
 
         history, _ = dataset[0]
 
         # Market States
         self.initial_state = MarketEnvState(
             history=history,  # type: ignore
-            portfolio=np.zeros(shape=(101,)),
+            portfolio=np.zeros(shape=(N_STOCKS + 1,)),
             done=False,
         )
 

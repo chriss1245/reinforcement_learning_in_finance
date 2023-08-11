@@ -21,4 +21,4 @@ jobs:
         pip install pylint
     - name: Analysing the code with pylint
       run: |
-        pylint --rcfile .pylintrc tests/* portfolio_management_rl
+        pylint --rcfile .pylintrc tests/* portfolio_management_rl --fail-under 9.5

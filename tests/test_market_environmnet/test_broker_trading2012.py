@@ -1,10 +1,10 @@
 """
 This module contains the tests for the Trading212 broker. The tests are done by creating a random portfolios
 The broker objects are the responsible for the execution of the orders. They are the ones that update the
-portfolio and the market state. The broker is the one that is responsible for the commissions and the
-slippage. This broker in particular is the one that is used for the Trading212 platform which does not charge commissions unless
-we buy stocks in other currencies. The slippage is the difference between the price that we see in the platform and the price
-that we buy the stock at. In this case the slippage is 0.
+portfolio and the market state. The broker is the one that is responsible for the commissions and the slippage.
+This broker in particular is the one that is used for the Trading212 platform which does not charge commissions unless
+we buy stocks in other currencies. The slippage is the difference between the price that we see in the platform 
+and the price that we buy the stock at. In this case the slippage is 0.
 """
 
 import unittest
