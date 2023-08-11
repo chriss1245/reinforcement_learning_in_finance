@@ -21,9 +21,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install coverage
 
-      - name: Setup config and secret files
-        run: |
-          mv secrets.toml.template secrets.toml
       - name: Testing
         run: |
           coverage run -m unittest discover ./tests
