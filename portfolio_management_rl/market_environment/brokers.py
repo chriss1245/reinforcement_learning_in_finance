@@ -3,6 +3,9 @@ Class for brokers which are used to execute orders and calculate transaction cos
 """
 
 import numpy as np
+import torch
+
+from portfolio_management_rl.utils.contstants import PRICE_EPSILON
 
 from .commons import MarketEnvState
 
@@ -41,6 +44,8 @@ class Trading212(Broker):
     However, it charges a 0.5% comission for converting the profit to the base currency.
     """
 
+    __epsilon__ = PRICE_EPSILON  # to avoid floating point errors  (the action price is greater than the current price as consequence)
+
     def __init__(self, profit_commision_percent: float = 0.5):
         """
         Initializes the strategy.
@@ -50,7 +55,9 @@ class Trading212(Broker):
         """
         self.profit_proportion = profit_commision_percent / 100
 
-    def buy(self, market_state: MarketEnvState, quantity: np.ndarray) -> None:
+    def buy(
+        self, market_state: MarketEnvState, quantity: np.ndarray | torch.Tensor
+    ) -> None:
         """
         Buys stocks. Adding the stocks to the portfolio and substracting the money from the balance.
 
@@ -60,17 +67,32 @@ class Trading212(Broker):
         Returns:
             np.ndarray: Bought stocks.
         """
-        total_price = quantity.dot(
-            market_state.prices
-        )  # total price of the stocks to buy
 
-        if total_price > market_state.balance:
-            raise ValueError("Not enough balance to buy the stocks.")
+        if isinstance(quantity, np.ndarray):
+            total_price = quantity.dot(
+                market_state.prices + self.__epsilon__
+            )  # total price of the stocks to buy
 
-        market_state.balance -= total_price
-        market_state.portfolio[:-1] += quantity
+            if total_price > market_state.balance:
+                raise ValueError("Not enough balance to buy the stocks.")
 
-    def sell(self, market_state: MarketEnvState, quantity: np.ndarray) -> None:
+            market_state.balance -= total_price
+            market_state.shares += quantity
+
+        else:
+            total_price = torch.dot(
+                quantity, market_state.prices + self.__epsilon__
+            ).item()
+
+            if total_price > market_state.balance:
+                raise ValueError("Not enough balance to buy the stocks.")
+
+            market_state.balance -= total_price
+            market_state.shares += quantity
+
+    def sell(
+        self, market_state: MarketEnvState, quantity: np.ndarray | torch.Tensor
+    ) -> None:
         """
         Sell stocks by a given quatity
 
@@ -81,11 +103,22 @@ class Trading212(Broker):
             float: Money earned by selling the stocks.
         """
 
-        if np.any(quantity > market_state.portfolio[:-1]):
-            raise ValueError("Not enough stocks to sell.")
+        print(type(quantity))
+        print(isinstance(quantity, np.ndarray))
+        print(type(market_state.shares))
+        if isinstance(quantity, np.ndarray):
+            if np.any(quantity > market_state.shares):
+                raise ValueError("Not enough stocks to sell.")
 
-        total_price = quantity.dot(
-            market_state.prices
-        )  # total price of the stocks to sell
-        market_state.portfolio[:-1] -= quantity
-        market_state.balance += total_price * (1 - self.profit_proportion)
+            total_price = quantity.dot(
+                (market_state.prices)
+            )  # total price of the stocks to sell
+            market_state.shares -= quantity
+            market_state.balance += total_price * (1 - self.profit_proportion)
+        else:
+            if torch.any(quantity > market_state.shares):
+                raise ValueError("Not enough stocks to sell.")
+
+            total_price = torch.dot(quantity, market_state.prices)
+            market_state.shares -= quantity
+            market_state.balance += total_price * (1 - self.profit_proportion)
