@@ -154,6 +154,18 @@ class TestMarketEnvState(TestCase):
 
         self.assertAlmostEqual(np.sum(state.net_distribution), 1.0, delta=1e-5)
 
+    def test_net_worth_is_float(self):
+        """
+        Tests that the net worth is a float.
+        """
+        state = MarketEnvState(
+            history=self.history,
+            portfolio=self.portfolio,
+            done=False,
+        )
+
+        self.assertTrue(isinstance(state.net_worth, float))
+
 
 class TestTorchMarketEnvState(TestMarketEnvState):
     """
@@ -245,6 +257,33 @@ class TestTorchMarketEnvState(TestMarketEnvState):
         prices = self.history[:, -1]
 
         self.assertAlmostEqual(state.investment, torch.sum(shares * prices), delta=1e-5)
+
+    def test_net_distribution(self):
+        """
+        Tests that the net distribution is 1
+        """
+        state = MarketEnvState(
+            history=self.history,
+            portfolio=self.portfolio,
+            done=False,
+        )
+
+        self.assertAlmostEqual(torch.sum(state.net_distribution), 1.0, delta=1e-5)
+
+    def test_net_worth_is_float(self):
+        """
+        Test that the net worth is a float.
+        """
+        state = MarketEnvState(
+            history=self.history,
+            portfolio=self.portfolio,
+            done=False,
+        )
+
+        self.assertTrue(
+            isinstance(state.net_worth, float),
+            msg=f"The net worth is type: {type(state.net_worth)}",
+        )
 
 
 if __name__ == "__main__":

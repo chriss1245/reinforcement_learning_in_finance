@@ -15,3 +15,5 @@ DATA_DIR = PROJECT_DIR.parent / "data"
 MLFLOW_TRACKING_URI = (PROJECT_DIR / "mlflow").as_uri()
 
 N_STOCKS = 100
+
+PRICE_EPSILON = 1e-3  # Used as an overcost for all the stocks when buying in order to avoid floating point precision errors
