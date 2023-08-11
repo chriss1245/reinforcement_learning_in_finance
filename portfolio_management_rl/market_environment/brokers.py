@@ -103,9 +103,6 @@ class Trading212(Broker):
             float: Money earned by selling the stocks.
         """
 
-        print(type(quantity))
-        print(isinstance(quantity, np.ndarray))
-        print(type(market_state.shares))
         if isinstance(quantity, np.ndarray):
             if np.any(quantity > market_state.shares):
                 raise ValueError("Not enough stocks to sell.")

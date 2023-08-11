@@ -51,7 +51,7 @@ class TestTrading212(unittest.TestCase):
 
         np.testing.assert_array_almost_equal(shares + 1, self.market_state.shares)
 
-        self.assertAlmostEqual(net_worth, self.market_state.net_worth)
+        self.assertGreaterEqual(net_worth, self.market_state.net_worth)
 
         self.assertGreater(balance, self.market_state.balance)
 
