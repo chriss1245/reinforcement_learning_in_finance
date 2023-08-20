@@ -1,6 +1,7 @@
-from setuptools import find_packages, setup
 import io
 from pathlib import Path
+
+from setuptools import find_packages, setup
 
 # Package meta-data.
 NAME = "portfolio-management-rl"
@@ -9,7 +10,7 @@ URL = "https://github.com/chriss1245/reinforcement_learning_in_finance.git"
 EMAIL = "christopher.manzano.vimos@gmail.com"
 AUTHOR = "Christopher Manzano"
 REQUIRES_PYTHON = ">=3.10.0"
-VERSION = "23.7.16"
+VERSION = "23.8.20"
 
 
 # Constants
