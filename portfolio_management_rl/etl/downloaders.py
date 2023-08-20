@@ -4,7 +4,6 @@ This module contains the required methods for data gathering
 
 import re
 from abc import ABC
-from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -12,20 +11,9 @@ import pandas as pd
 import yfinance as yf
 
 from portfolio_management_rl.utils.contstants import DATA_DIR
-from portfolio_management_rl.utils.logging import get_logger
+from portfolio_management_rl.utils.logger import get_logger
 
 logger = get_logger(__file__)
-
-
-class DownloadStrategy(Enum):
-    SURVIVED = "SURVIVED"  # only companies with all the data in the time interval
-    ALL = "ALL"  # all the companies
-
-
-class Granularity(Enum):
-    HOURLY = "1h"
-    DAILY = "1d"
-    MONTHLY = "1m"
 
 
 class Downloader(ABC):
@@ -78,10 +66,8 @@ class SP500Downloader(Downloader):
 
     def __init__(
         self,
-        initial_date="1989-12-31",
-        end_date: Optional[str] = None,
-        strategy: DownloadStrategy = DownloadStrategy.ALL,
-        granularity: Granularity = Granularity.DAILY,
+        initial_date: str = "1983-12-31",
+        end_date: Optional[str] = "2023-08-20",
     ):
         """
         Historical Price Downloader for the s&p 500
@@ -89,11 +75,12 @@ class SP500Downloader(Downloader):
 
         self.initial_date = initial_date
         self.end_date = end_date
-        self.strategy = strategy
-        self.granularity = granularity
 
         # create the parent dir
-        (DATA_DIR / self.__folder_name).mkdir(exist_ok=True)
+        root = DATA_DIR / self.__folder_name
+        root.mkdir(exist_ok=True)
+        (root / "all").mkdir(exist_ok=True)
+        (root / "all_survived").mkdir(exist_ok=True)
 
     def download(self):
         """
@@ -117,8 +104,7 @@ class SP500Downloader(Downloader):
             all_companies_df.date_removed, format="mixed"
         )
 
-        if self.strategy == DownloadStrategy.ALL:
-            all_companies_df.to_csv(DATA_DIR / f"{self.__folder_name}/all.csv")
+        all_companies_df.to_csv(DATA_DIR / f"{self.__folder_name}/all/companies.csv")
 
         # Filter by date
         temp = all_companies_df[all_companies_df.date_added <= self.initial_date]
@@ -127,20 +113,22 @@ class SP500Downloader(Downloader):
 
         # The first asset is the risk free
         new = pd.DataFrame.from_dict([self.__risk_free_asset])
-        temp = pd.concat([new, temp], ignore_index=True)
-        temp.to_csv(DATA_DIR / f"{self.__folder_name}/all_survived.csv")
+        survived_df = pd.concat([new, temp], ignore_index=True)
+        survived_df.to_csv(
+            DATA_DIR / f"{self.__folder_name}/all_survived/companies.csv"
+        )
+        all_companies_df = pd.concat([new, all_companies_df], ignore_index=True)
 
         errors = 0
         companies_error = []
         names_error = []
         found_data = []
 
-        landing_dir = (
-            DATA_DIR / f"{self.__folder_name}/raw_prices_{self.granularity.value}"
-        )
+        landing_dir = DATA_DIR / f"{self.__folder_name}/raw_prices"
         landing_dir.mkdir(parents=True, exist_ok=True)
 
-        for i, (company, name) in enumerate(
+        logger.info("Downloading the data")
+        for _, (company, name) in enumerate(
             zip(all_companies_df["ticker"], all_companies_df["name"])
         ):
             path = landing_dir / f"{company}.csv"
@@ -149,11 +137,17 @@ class SP500Downloader(Downloader):
             if path.exists():
                 continue
             try:
-                data = yf.download(company, start="1985-01-01", interval="1d")
+                ticker = yf.Ticker(company)
+                data = yf.download(
+                    company, start=self.initial_date, end=self.end_date, interval="1d"
+                )
 
                 if len(data) == 0:
                     data = yf.download(
-                        company.replace(".", "-"), start="1985-01-01", interval="1d"
+                        company.replace(".", "-"),
+                        start=self.initial_date,
+                        end=self.end_date,
+                        interval="1d",
                     )
 
                 if len(data) > 0:
@@ -164,20 +158,55 @@ class SP500Downloader(Downloader):
                     companies_error.append(company)
                     names_error.append(name)
                     found_data.append(False)
-                    logger.warning(
-                        f"could not find company {company}: {name} in yfinance"
-                    )
-            except:
+            except yf.exceptions.YFinanceException:
                 errors += 1
                 companies_error.append(company)
                 names_error.append(name)
                 found_data.append(False)
-                logger.warning(f"could not find company {company}: {name} in yfinance")
 
         # write a txt file with the companies that could not be found
-        with open(DATA_DIR / f"{self.__folder_name}companies_not_found.txt", "w") as f:
+        with open(
+            DATA_DIR / f"{self.__folder_name}/companies_not_found.txt",
+            "w",
+            encoding="utf-8",
+        ) as f:
             for company, name in zip(companies_error, names_error):
                 f.write(f"{company}: {name}\n")
+
+        logger.info("Creating the dataframes")
+        for df, name in zip([all_companies_df, survived_df], ["all", "all_survived"]):
+            close_df = pd.DataFrame(columns=df.ticker.tolist())
+            adj_close_df = pd.DataFrame(columns=df.ticker.tolist())
+            open_df = pd.DataFrame(columns=df.ticker.tolist())
+            high_df = pd.DataFrame(columns=df.ticker.tolist())
+            low_df = pd.DataFrame(columns=df.ticker.tolist())
+
+            for ticker in df.ticker.tolist():
+                try:
+                    temp_df = pd.read_csv(
+                        landing_dir / f"{ticker}.csv", parse_dates=True
+                    )
+                except FileNotFoundError:
+                    logger.warning(f"File {ticker}.csv not found")
+                    continue
+
+                # filter out before
+                temp_df = temp_df[temp_df["Date"] >= self.initial_date]
+
+                temp_df = temp_df.set_index("Date")
+                close_df[ticker] = temp_df["Close"]
+                if not "Adj Close" in temp_df.columns:
+                    temp_df["Adj Close"] = temp_df["Close"]
+                adj_close_df[ticker] = temp_df["Adj Close"]
+                open_df[ticker] = temp_df["Open"]
+                high_df[ticker] = temp_df["High"]
+                low_df[ticker] = temp_df["Low"]
+
+            close_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/close.csv")
+            adj_close_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/adj_close.csv")
+            open_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/open.csv")
+            high_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/high.csv")
+            low_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/low.csv")
 
     def get_companies_dict(
         self, changes_df: pd.DataFrame, companies_df: pd.DataFrame
@@ -198,7 +227,7 @@ class SP500Downloader(Downloader):
 
         # all the companies that formed part in the sp500 index (wikipedia)
         companies = companies_df["Symbol"].tolist()
-        logger.info("companies currently listed in the sp500 index: ", len(companies))
+        logger.info(f"Companies currentlcy listed in the sp500 index: {len(companies)}")
 
         temp = changes_df.Added.Ticker.to_list()
         temp += changes_df.Removed.Ticker.to_list()
@@ -209,7 +238,7 @@ class SP500Downloader(Downloader):
         # delete duplicates
         all_companies = list(dict.fromkeys(all_companies))
         logger.info(
-            "all companies that formed part in the sp500 index: ", len(all_companies)
+            f"All companies that formed part in the sp500 index: {len(all_companies)}"
         )
 
         counter_missing_removed = 0
@@ -253,7 +282,7 @@ class SP500Downloader(Downloader):
                         name = changes_df.Removed[
                             changes_df.Removed["Ticker"] == company
                         ]["Security"].values[0]
-                    except:
+                    except IndexError:
                         name = changes_df.Added[changes_df.Added["Ticker"] == company][
                             "Security"
                         ].values[0]
@@ -273,14 +302,16 @@ class SP500Downloader(Downloader):
                         date = changes_df[changes_df["Removed"]["Ticker"] == company][
                             "Date"
                         ].values[0][0]
-                        companies_dict[company]["date_removed"] = convert_date(date)
+                        companies_dict[company][
+                            "date_removed"
+                        ] = SP500Downloader.convert_date(date)
                         companies_dict[company]["reason_removed"] = changes_df[
                             changes_df["Removed"]["Ticker"] == company
                         ]["Reason"].values[0][0]
-                    except Exception as e:
+                    except KeyError as e:
                         counter_missing_removed += 1
-                        logger.info(
-                            f"could not find date removed for {company}: current count: {counter_missing_removed}"
+                        logger.debug(
+                            f"Could not find date removed for {company}: current count: {counter_missing_removed}, error: {e}"
                         )
 
                     try:
@@ -296,12 +327,21 @@ class SP500Downloader(Downloader):
                             f"could not find date added for {company} current count: {counter_missing_added}"
                         )
                 except Exception as e:
-                    logger.warning(f"could not find company {company} in changes_df")
-                    logger.warning(e)
+                    logger.debug(f"could not find company {company} in changes_df")
+                    logger.debug(e)
         return companies_dict
 
     @staticmethod
     def convert_date(date):
+        """
+        It transfroms string dates to the format YYYY-MM-DD
+
+        Args:
+            date: a string date in the format MMM DD, YYYY where MMM is the month in letters
+
+        Returns:
+            A string date in the format YYYY-MM-DD
+        """
         date = date.lower()
         # take out month, day, year
         month, day, year = re.findall(r"\w+", date)
@@ -315,6 +355,15 @@ class SP500Downloader(Downloader):
 
     @staticmethod
     def sanitize_date(date):
+        """
+        Fixes issues with some dates
+
+        Args:
+            date: a string date in the format MMM DD, YYYY where MMM is the month in letters
+
+        Returns:
+            A string date in the format YYYY-MM-DD
+        """
         if date == "2001?":
             return "2001-01-01"
         return date
