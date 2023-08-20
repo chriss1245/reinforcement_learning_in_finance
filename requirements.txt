@@ -1,4 +1,6 @@
 gym
+yfinance
+lxml
 numpy
 pandas
 matplotlib
