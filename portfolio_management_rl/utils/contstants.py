@@ -13,12 +13,16 @@ DATA_DIR = PROJECT_DIR / "data"
 TESTS_DIR = PROJECT_DIR / "tests"
 
 MLFLOW_TRACKING_URI = (PROJECT_DIR / "mlflow").as_uri()
-
-# Number of stocks of the training dataset
-N_STOCKS = 100
-
 # Used as an overcost for all the stocks when buying in order to avoid floating point precision errors
 PRICE_EPSILON = 1e-3
+
+
+# Number of stocks of the training dataset
+N_STOCKS = 101
+WINDOW_SIZE = 756  # 3 years of trading days 3 * 252
+FORECAST_HORIZON = 22  # 1 month of trading days 21-22 without holidays
+INITIAL_DATE = "1980-01-01"
+END_DATE = "2023-08-01"
 
 
 if __name__ == "__main__":
