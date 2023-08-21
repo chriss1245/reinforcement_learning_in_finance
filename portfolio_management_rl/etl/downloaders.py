@@ -21,8 +21,6 @@ class Downloader(ABC):
     Common interface for Data Downloaders
     """
 
-    __folder_name = "data"
-
     def download(self, path: Path) -> None:
         """
         Downloads the data given the specifications
@@ -311,7 +309,8 @@ class SP500Downloader(Downloader):
                     except KeyError as e:
                         counter_missing_removed += 1
                         logger.debug(
-                            f"Could not find date removed for {company}: current count: {counter_missing_removed}, error: {e}"
+                            f"Could not find date removed for {company}:"
+                            + f"current count: {counter_missing_removed}, err: {e}"
                         )
 
                     try:
@@ -321,12 +320,12 @@ class SP500Downloader(Downloader):
                         companies_dict[company][
                             "date_added"
                         ] = SP500Downloader.convert_date(date)
-                    except Exception as e:
+                    except KeyError:
                         counter_missing_added += 1
                         logger.info(
                             f"could not find date added for {company} current count: {counter_missing_added}"
                         )
-                except Exception as e:
+                except IndexError as e:
                     logger.debug(f"could not find company {company} in changes_df")
                     logger.debug(e)
         return companies_dict
