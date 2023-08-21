@@ -7,3 +7,4 @@ matplotlib
 torch
 mlflow
 PyPortfolioOpt
+torchrl
