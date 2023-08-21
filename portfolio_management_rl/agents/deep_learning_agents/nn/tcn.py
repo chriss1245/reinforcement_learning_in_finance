@@ -2,7 +2,7 @@
 Temporal cnn based on darts implementation:
 https://unit8co.github.io/darts/_modules/darts/models/forecasting/tcn_model.html#TCNModel
 """
-from typing import Optional, Tuple
+from typing import Optional
 from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
@@ -18,12 +18,13 @@ class _ResidualBlock(nn.Module):
         num_filters: int,
         kernel_size: int,
         dilation_base: int,
-        dropout_fn,
+        dropout: float,
         weight_norm: bool,
         nr_blocks_below: int,
         num_layers: int,
         input_size: int,
         target_size: int,
+        activation: callable = F.silu,  # swish activation
     ):
         """PyTorch module implementing a residual block module used in `_TCNModule`.
 
@@ -66,10 +67,11 @@ class _ResidualBlock(nn.Module):
 
         self.dilation_base = dilation_base
         self.kernel_size = kernel_size
-        self.dropout_fn = dropout_fn
+        self.dropout_fn = nn.Dropout(dropout)
         self.num_layers = num_layers
         self.nr_blocks_below = nr_blocks_below
 
+        self.activation = activation
         input_dim = input_size if nr_blocks_below == 0 else num_filters
         output_dim = target_size if nr_blocks_below == num_layers - 1 else num_filters
         self.conv1 = nn.Conv1d(
@@ -85,8 +87,8 @@ class _ResidualBlock(nn.Module):
             dilation=(dilation_base**nr_blocks_below),
         )
         if weight_norm:
-            self.conv1 = nn.utils.weight_norm(self.conv1)
-            self.conv2 = nn.utils.weight_norm(self.conv2)
+            self.conv1 = nn.utils.parametrizations.weight_norm(self.conv1)
+            self.conv2 = nn.utils.parametrizations.weight_norm(self.conv2)
 
         if input_dim != output_dim:
             self.conv3 = nn.Conv1d(input_dim, output_dim, 1)
@@ -102,13 +104,13 @@ class _ResidualBlock(nn.Module):
             self.kernel_size - 1
         )
         x = F.pad(x, (left_padding, 0))
-        x = self.dropout_fn(F.relu(self.conv1(x)))
+        x = self.dropout_fn(self.activation(self.conv1(x)))
 
         # second step
         x = F.pad(x, (left_padding, 0))
         x = self.conv2(x)
         if self.nr_blocks_below < self.num_layers - 1:
-            x = F.relu(x)
+            x = self.activation(x)
         x = self.dropout_fn(x)
 
         # add residual
@@ -130,14 +132,14 @@ class TemporalConvNet(nn.Module):
         input_size: int,
         kernel_size: int,
         num_filters: int,
-        num_layers: Optional[int],
         dilation_base: int,
         weight_norm: bool,
         target_size: int,
-        nr_params: int,
         target_length: int,
         dropout: float,
         window_size: int,
+        num_layers: Optional[int] = None,
+        activation: callable = F.silu,
         **kwargs,
     ):
         """PyTorch module implementing a dilated TCN module used in `TCNModel`.
@@ -189,19 +191,21 @@ class TemporalConvNet(nn.Module):
         self.kernel_size = kernel_size
         self.target_length = target_length
         self.target_size = target_size
-        self.nr_params = nr_params
         self.dilation_base = dilation_base
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = dropout
         self.windows_size = window_size
+        self.activation = activation
 
         # If num_layers is not passed, compute number of layers needed for full history coverage
         if num_layers is None and dilation_base > 1:
+            # https://unit8.com/wp-content/uploads/2021/07/formulas_Obszar-roboczy-1-kopia-7-1-scaled.jpg
             num_layers = math.ceil(
                 math.log(
-                    (self.windows_size - 1)
-                    * (dilation_base - 1)
-                    / (kernel_size - 1)
-                    / 2
+                    (
+                        (self.windows_size - 1)
+                        * (dilation_base - 1)
+                        / (2 * (kernel_size - 1))
+                    )
                     + 1,
                     dilation_base,
                 )
@@ -213,22 +217,32 @@ class TemporalConvNet(nn.Module):
         self.num_layers = num_layers
 
         # Building TCN module
-        self.res_blocks_list = []
-        for i in range(num_layers):
-            res_block = _ResidualBlock(
-                num_filters,
-                kernel_size,
-                dilation_base,
-                self.dropout,
-                weight_norm,
-                i,
-                num_layers,
-                self.input_size,
-                target_size * nr_params,
-            )
-            self.res_blocks_list.append(res_block)
+        self.encoder = nn.Sequential(
+            *[
+                _ResidualBlock(
+                    num_filters=num_filters,
+                    kernel_size=kernel_size,
+                    dilation_base=dilation_base,
+                    dropout=self.dropout,
+                    weight_norm=weight_norm,
+                    nr_blocks_below=i,
+                    num_layers=num_layers,
+                    input_size=self.input_size,
+                    target_size=target_size,
+                    activation=activation,
+                )
+                for i in range(num_layers)
+            ]
+        )
 
-        self.res_blocks = nn.ModuleList(self.res_blocks_list)
+        # passes seq_len x channels to 1 x channels
+        self.decoder = nn.Sequential(
+            nn.Conv1d(
+                self.windows_size, 1, 1
+            ),  # (batch_size, 1, seq_len) pointwise convolution
+            nn.Flatten(),  # (batch_size, seq_len)
+            nn.Softmax(),  # (batch_size, seq_len)
+        )
 
     def forward(self, x: Tensor):
         """
@@ -236,16 +250,15 @@ class TemporalConvNet(nn.Module):
         and the corresponding time indices.
 
         Args:
-            x: Time series input of shape (batch_size, input_chunk_length, input_size)
+            x: Time series input of shape (batch_size, seq_len, channels)
         """
 
-        batch_size = x.size(0)
-        x = x.transpose(1, 2)
+        x = x.transpose(1, 2)  # (batch_size, channels, seq_len)
 
-        for res_block in self.res_blocks_list:
-            x = res_block(x)
+        x = self.encoder(x)  # (batch_size, channels, seq_len)
 
-        x = x.transpose(1, 2)
-        x = x.view(batch_size, self.windows_size, self.target_size, self.nr_params)
+        x = x.transpose(1, 2)  # (batch_size, seq_len, channels)
+
+        x = self.decoder(x)  # (batch_size, seq_len, 1)
 
         return x
