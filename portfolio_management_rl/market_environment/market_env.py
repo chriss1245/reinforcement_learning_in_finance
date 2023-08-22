@@ -10,10 +10,14 @@ import gym
 import numpy as np
 from torch.utils.data import Dataset
 
-from portfolio_management_rl.utils.contstants import N_STOCKS
+from portfolio_management_rl.utils.contstants import N_STOCKS, PRICE_EPSILON
+from portfolio_management_rl.utils.logger import get_logger
 
 from .brokers import Broker, Trading212
 from .commons import MarketEnvState
+import logging
+
+logger = get_logger(__file__, level=logging.DEBUG)
 
 
 class MarketEnv(gym.Env):
@@ -170,16 +174,23 @@ class MarketEnv(gym.Env):
         buy[delta_distribution > 0] = delta_distribution[delta_distribution > 0]
         # normalize the buy vector to add up to 1
         # (because selling is alters the net worth   because of the transaction cost)
-        buy /= np.sum(buy)
+        if np.sum(buy) > 0:
+            buy /= np.sum(buy)
 
-        buy = (
-            self.current_state.balance * buy / self.current_state.prices
-        )  # covert to quantity
+            # covert to quantity
+            buy = (
+                self.current_state.balance
+                * buy
+                / (self.current_state.prices + PRICE_EPSILON)
+            )
 
-        # truncate to  5 decimal places
-        buy = np.trunc(buy * 100000) / 100000
+            # truncate to  5 decimal places
+            buy = np.trunc(buy * 100000) / 100000
 
-        self.broker.buy(self.current_state, buy)
+            print(self.current_state)
+            print(buy)
+
+            self.broker.buy(self.current_state, buy)
 
         # reward
         reward = self.get_reward()
