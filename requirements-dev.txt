@@ -10,6 +10,6 @@ pylint
 black
 coverage
 ipykernel
-mlflow
+mlflow==2.5
 PyPortfolioOpt
 torchrl
