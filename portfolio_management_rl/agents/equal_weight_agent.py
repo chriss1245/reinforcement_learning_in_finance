@@ -64,7 +64,7 @@ class EqualWeightAgent(BaseAgent):
         """
         if self.first_step:
             self.first_step = False
-            return {"distribution": state.net_distribution}
+            return {"distribution": self.weights}
 
         if self.rebalance:
             return {"distribution": self.weights}

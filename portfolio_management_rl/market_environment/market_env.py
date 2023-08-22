@@ -187,9 +187,6 @@ class MarketEnv(gym.Env):
             # truncate to  5 decimal places
             buy = np.trunc(buy * 100000) / 100000
 
-            print(self.current_state)
-            print(buy)
-
             self.broker.buy(self.current_state, buy)
 
         # reward
