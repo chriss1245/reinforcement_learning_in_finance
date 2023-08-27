@@ -11,6 +11,7 @@ import numpy as np
 from gym.spaces.dict import Dict
 from pypfopt import expected_returns
 from pypfopt.efficient_frontier import EfficientFrontier
+from pypfopt import EfficientSemivariance
 from pypfopt.risk_models import (
     CovarianceShrinkage,
     fix_nonpositive_semidefinite,
@@ -23,6 +24,8 @@ from portfolio_management_rl.market_environment.market_env import MarketEnvState
 
 from .base import BaseAgent
 
+import pandas as pd
+
 
 class EfficientFrontierAgent(BaseAgent):
     """
@@ -32,7 +35,6 @@ class EfficientFrontierAgent(BaseAgent):
 
     def __init__(
         self,
-        output_shape: tuple = (1, 101),
         risk_free_rate: float = 0.02,
         expected_returns_method: str = "mean_historical_return",
         risk_matrix_method: str = "ledoit_wolf",
@@ -49,7 +51,7 @@ class EfficientFrontierAgent(BaseAgent):
             risk_matrix_method (str): Method to calculate the risk matrix.
             risk_matrix_shrinkage (float): Shrinkage intensity for the risk matrix.
         """
-        self.output_shape = output_shape
+
         self.risk_free_rate = risk_free_rate
         self.expected_returns_method = expected_returns_method
         self.risk_matrix_method = risk_matrix_method
@@ -64,7 +66,6 @@ class EfficientFrontierAgent(BaseAgent):
         Returns a Dictionary of parameters
         """
         return {
-            "output_shape": self.output_shape,
             "risk_free_rate": self.risk_free_rate,
             "expected_returns": self.expected_returns_method,
             "risk_matrix_method": self.risk_matrix_method,
@@ -84,7 +85,7 @@ class EfficientFrontierAgent(BaseAgent):
 
         self.fit(state)
 
-        return {"distribution": self.weights}
+        return {"distribution": self.weights, "rebalance": True}
 
     def update(
         self,
@@ -93,6 +94,9 @@ class EfficientFrontierAgent(BaseAgent):
         reward: Union[float, np.ndarray, Tensor],
         next_state: MarketEnvState,
     ) -> None:
+        pass
+
+    def reset(self) -> None:
         pass
 
     def log(self, **kwargs) -> None:
@@ -126,6 +130,9 @@ class EfficientFrontierAgent(BaseAgent):
                 risk = semicovariance(prices)
 
             case "risk_matrix":
+                risk = risk_matrix(prices)
+
+            case "sample_covariance":
                 risk = risk_matrix(prices)
 
             case _:
@@ -171,8 +178,13 @@ class EfficientFrontierAgent(BaseAgent):
             state (dict): State dictionary.
         """
 
-        expected_returns = self.compute_expected_returns(state.prices)
-        risk_matrix = self.compute_risk_matrix(state.prices)
+        if isinstance(state.history, np.ndarray):
+            prices_df = pd.DataFrame(state.history.T)
+        else:
+            prices_df = pd.DataFrame(state.history.detach().numpy().T)
+
+        expected_returns = self.compute_expected_returns(prices_df)
+        risk_matrix = self.compute_risk_matrix(prices_df)
 
         self.model = EfficientFrontier(
             expected_returns,
@@ -196,3 +208,70 @@ class EfficientFrontierAgent(BaseAgent):
                 )
 
         self.weights = self.model.clean_weights()
+        self.weights = np.array(list(self.weights.values()) + [0])
+
+
+class EfficientSemivarianceAgent(BaseAgent):
+    """
+    This agent uses the semivariance (downside risk) in order to rebalance our portfolio every time step to have the weights
+    that are on the efficient frontier. Insted of focusing in the sharpe ratio, it focuses on the sortino ratio.
+    """
+
+    def __init__(
+        self,
+        desired_return: float = 0.2,
+        method: str = "min_semivariance",
+    ):
+        """
+        Initializes the agent.
+        Args:
+            n_stocks (int): Number of stocks.
+            desired_return (float): Desired return.
+            method (str): Method to use to optimize the portfolio.
+        """
+
+        self.desired_return = desired_return
+        self.method = method
+
+    @property
+    def parameters(self) -> dict:
+        """
+        Returns a Dictionary of parameters
+        """
+        return {
+            "desired_return": self.desired_return,
+            "method": self.method,
+        }
+
+    def act(self, state: MarketEnvState) -> Dict:
+        """
+        Takes in a state and returns an action.
+
+        Args:
+            state (dict): State dictionary.
+
+        Returns:
+            dict: Action dictionary.
+        """
+
+        df = pd.DataFrame(state.history.T)
+
+        mu = expected_returns.mean_historical_return(df)
+        historical_returns = expected_returns.returns_from_prices(df)
+
+        es = EfficientSemivariance(mu, historical_returns)
+
+        if self.method == "min_semivariance":
+            es.min_semivariance()
+        elif self.method == "max_quadratic_utility":
+            es.max_quadratic_utility()
+        elif self.method == "efficient_risk":
+            es.efficient_risk(self.desired_return)
+        else:
+            raise ValueError(f"Method {self.method} not supported.")
+
+        weights = es.clean_weights()
+
+        # add 0 for cash and convert to np.array
+        weights = np.array(list(weights.values()) + [0])
+        return {"distribution": weights, "rebalance": True}
