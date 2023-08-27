@@ -10,16 +10,17 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 # Path to the root package directory
 PACKAGE_DIR = PROJECT_DIR / "portfolio_managemaner_rl"
 DATA_DIR = PROJECT_DIR / "data"
+BUFFER_DIR = PROJECT_DIR / "buffer"
 TESTS_DIR = PROJECT_DIR / "tests"
 
 MLFLOW_TRACKING_URI = (PROJECT_DIR / "mlflow").as_uri()
 # Used as an overcost for all the stocks when buying in order to avoid floating point precision errors
-PRICE_EPSILON = 1e-3
+PRICE_EPSILON = 1e-6
 
 
-# Number of stocks of the training dataset
+# Number of stocks of the training da   taset
 N_STOCKS = 101
-WINDOW_SIZE = 756  # 3 years of trading days 3 * 252
+WINDOW_SIZE = 3 * 252  # 3 years of trading days 3 * 252
 FORECAST_HORIZON = 22  # 1 month of trading days 21-22 without holidays
 INITIAL_DATE = "1980-01-01"
 END_DATE = "2023-08-01"

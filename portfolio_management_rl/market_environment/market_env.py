@@ -8,10 +8,12 @@ from typing import Any, Optional, Tuple
 
 import gym
 import numpy as np
-from torch.utils.data import Dataset
+
 
 from portfolio_management_rl.utils.contstants import N_STOCKS, PRICE_EPSILON
 from portfolio_management_rl.utils.logger import get_logger
+from portfolio_management_rl.datasets.dataset import StocksDataset
+from portfolio_management_rl.market_environment.buffer import Buffer
 
 from .brokers import Broker, Trading212
 from .commons import MarketEnvState
@@ -28,7 +30,7 @@ class MarketEnv(gym.Env):
 
     def __init__(
         self,
-        dataset: Dataset,
+        dataset: StocksDataset,
         initial_balance: float = 10000,
         broker: Broker = Trading212(),
         experiment_logdir: Optional[Path] = None,
@@ -50,7 +52,6 @@ class MarketEnv(gym.Env):
         self.broker = broker
 
         history, _ = dataset[0]
-
         # Market States
         self.initial_state = MarketEnvState(
             history=history,  # type: ignore
@@ -60,14 +61,37 @@ class MarketEnv(gym.Env):
 
         self.initial_state.balance = initial_balance
 
-        self.last_state = None
-        self.current_state = self.initial_state
+        self.state = self.initial_state.copy()
 
         # History
         self.logdir = experiment_logdir
 
         # iterations
         self.iteration = 1
+
+    def __len__(self) -> int:
+        """
+        Returns the length of the dataset.
+
+        Returns:
+            int: Length of the dataset.
+        """
+        return len(self.dataset - 1)  # we have n-1 transitions
+
+    @staticmethod
+    def get_state_action(state: MarketEnvState) -> dict[str, Any]:
+        """
+        Returns the action of the given state.
+
+        Args:
+            state (MarketEnvState): State of the market environment.
+
+        Returns:
+            dict[str, Any]: Action of the state.
+        """
+
+        distribution = state.net_distribution.copy()
+        return {"distribution": distribution, "rebalance": False}
 
     def render(self, mode: str = "human") -> None:
         """
@@ -82,11 +106,11 @@ class MarketEnv(gym.Env):
         """
         Resets the market environment to its initial state.
         """
-        self.current_state = self.initial_state
-        self.last_state = None
-        self.iteration = 0
+        self.state = self.initial_state
 
-        return self.current_state
+        self.iteration = 1
+
+        return self.state
 
     def store(self, action: np.ndarray, reward: float, done: bool) -> None:
         """
@@ -99,7 +123,7 @@ class MarketEnv(gym.Env):
         """
         raise NotImplementedError
 
-    def get_reward(self) -> float:
+    def get_reward(self, state: MarketEnvState, next_state: MarketEnvState) -> float:
         """
         Reward method for the market environment.
 
@@ -110,25 +134,27 @@ class MarketEnv(gym.Env):
         """
 
         # MAPE profit prior to the update
-        previous_gain = (
-            self.last_state.net_worth - self.initial_state.net_worth
+        current_gain = (
+            state.net_worth - self.initial_state.net_worth
         ) / self.initial_state.net_worth
 
         # MAPE profit after the update
         next_gain = (
-            self.current_state.net_worth - self.initial_state.net_worth
+            next_state.net_worth - self.initial_state.net_worth
         ) / self.initial_state.net_worth
 
         # Regularization term (avoid that much changes in the portfolio)
         # regularization = np.mean(np.abs(next_state.portfolio_distribution - previous_state.portfolio_distribution))
 
         # If the episode has ended, the reward is the profit
-        if self.current_state.done:
+        if self.state.done:
             return next_gain
 
-        return next_gain - previous_gain  # - regularization
+        return next_gain - current_gain  # - regularization
 
-    def step(self, action: dict[str, Any]) -> Tuple[MarketEnvState, float, bool]:
+    def step(
+        self, action: dict[str, Any]
+    ) -> Tuple[MarketEnvState, float, bool, bool, dict[str, Any]]:
         """
         Executes an action on the market. Returns the next observation, the reward
         and whether the episode has ended.
@@ -143,30 +169,31 @@ class MarketEnv(gym.Env):
             observation (np.array): The next observation.
             reward (float): The reward obtained by executing the action.
             done (bool): Whether the episode has ended.
+            truncated (bool): Whether the episode has been truncated.
+            info (dict[str, Any]): Additional information.
         """
 
-        history, _ = self.dataset[self.iteration]  # history, future_price_n_days
-
-        # update the state
-        self.last_state = self.current_state.copy()
-        self.current_state = MarketEnvState(
-            history=history,
-            portfolio=self.current_state.portfolio.copy(),
-            done=False,
-        )
+        current_state = self.state.copy()
 
         # execute the action
         delta_distribution = (
-            action["distribution"][:-1] - self.current_state.net_distribution[:-1]
+            action["distribution"][:-1] - current_state.net_distribution[:-1]
         )
 
+        cashflow = 0.0
         # sell
         sell = np.zeros_like(delta_distribution)
         sell[delta_distribution < 0] = -delta_distribution[delta_distribution < 0]
-        sell = (
-            self.current_state.net_worth * sell / self.current_state.prices
-        )  # covert to quantity
-        self.broker.sell(self.current_state, sell)
+        if np.sum(sell) > 0:
+            sell = (
+                current_state.net_worth * sell / current_state.prices
+            )  # covert to quantity
+
+            # if sell is greater than shares, sell all shares
+            sell[sell > current_state.shares] = current_state.shares[
+                sell > current_state.shares
+            ]
+            cashflow += self.broker.sell(current_state, sell)
 
         # buy
         buy = np.zeros_like(delta_distribution)
@@ -178,27 +205,22 @@ class MarketEnv(gym.Env):
             buy /= np.sum(buy)
 
             # covert to quantity
-            buy = (
-                self.current_state.balance
-                * buy
-                / (self.current_state.prices + PRICE_EPSILON)
-            )
+            buy_quantities = self.broker.get_quantity_to_buy(current_state, buy)
+            cashflow += self.broker.buy(current_state, buy_quantities)
 
-            # truncate to  5 decimal places
-            buy = np.trunc(buy * 100000) / 100000
-
-            self.broker.buy(self.current_state, buy)
+        # Create the next state
+        done = self.iteration == len(self.dataset) - 1
+        history, _ = self.dataset[self.iteration]  # history, future_price_n_days
+        next_state = MarketEnvState(
+            history=history, portfolio=current_state.portfolio.copy(), done=done
+        )
 
         # reward
-        reward = self.get_reward()
-
-        # Check if the episode has ended
-        done = self.iteration == len(self.dataset) - 1
-
-        if done:
-            self.current_state.done = True
-            reward = self.get_reward()
+        reward = self.get_reward(current_state, next_state)
 
         self.iteration += 1
+        self.state = next_state.copy()
 
-        return self.current_state, reward, done
+        info = {"cashflow": cashflow}
+
+        return next_state, reward, done, False, info
