@@ -19,6 +19,10 @@ DATA_DIR = TESTS_DIR / "media" / "test_dataset"
 
 
 class TestMarketEnv(unittest.TestCase):
+    """
+    Tests of the behavior of the market environment.
+    """
+
     def setUp(self) -> None:
         datasets = StocksDataset.get_datasets(data_dir=DATA_DIR, return_dict=True)
         self.env = MarketEnv(dataset=datasets["train"])
@@ -33,11 +37,11 @@ class TestMarketEnv(unittest.TestCase):
         self.env.iteration = 10
         reset_state = self.env.reset()
         self.assertEqual(reset_state, initial_state)
-        self.assertEqual(self.env.iteration, 0)
+        self.assertEqual(self.env.iteration, 1)
 
     def test_step(self):
         action = {"distribution": np.zeros(shape=(N_STOCKS + 1,))}
-        observation, reward, done = self.env.step(action)
+        observation, reward, done, truncated, info = self.env.step(action)
         # Add assertions to check the behavior of step method.
         # It might include checking the types of return values,
         # the values themselves, or any changes to the internal state of the environment.
@@ -46,6 +50,8 @@ class TestMarketEnv(unittest.TestCase):
         self.assertIsInstance(observation, MarketEnvState)
         self.assertIsInstance(reward, float)
         self.assertIsInstance(done, bool)
+        self.assertIsInstance(truncated, bool)
+        self.assertIsInstance(info, dict)
 
 
 if __name__ == "__main__":

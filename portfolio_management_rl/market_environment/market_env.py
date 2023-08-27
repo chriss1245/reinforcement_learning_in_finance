@@ -3,21 +3,19 @@ This module emulates the market. It offers an interface to the agent to get the 
 of the market and to execute actions on the market.
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import gym
 import numpy as np
 
-
-from portfolio_management_rl.utils.contstants import N_STOCKS, PRICE_EPSILON
-from portfolio_management_rl.utils.logger import get_logger
 from portfolio_management_rl.datasets.dataset import StocksDataset
-from portfolio_management_rl.market_environment.buffer import Buffer
+from portfolio_management_rl.utils.contstants import N_STOCKS
+from portfolio_management_rl.utils.logger import get_logger
 
 from .brokers import Broker, Trading212
 from .commons import MarketEnvState
-import logging
 
 logger = get_logger(__file__, level=logging.DEBUG)
 

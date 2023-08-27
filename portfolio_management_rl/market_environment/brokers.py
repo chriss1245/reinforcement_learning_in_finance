@@ -133,7 +133,7 @@ class Trading212(Broker):
 
             return total_price * (1 - self.fx_proportion)
 
-        else:
+        if isinstance(quantity, torch.Tensor):
             if torch.any(quantity > state.shares):
                 raise ValueError("Not enough stocks to sell.")
 
@@ -142,3 +142,5 @@ class Trading212(Broker):
             state.balance += total_price * (1 - self.fx_proportion)
 
             return total_price * (1 - self.fx_proportion)
+
+        raise ValueError("Quantity must be a torch.Tensor or np.ndarray")

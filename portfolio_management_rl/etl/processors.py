@@ -2,16 +2,16 @@
 This module contains tools for processing the historical data from stock prices.
 """
 
-import pandas as pd
-from portfolio_management_rl.utils.contstants import DATA_DIR
-import matplotlib.pyplot as plt
-import numpy as np
 from pathlib import Path
+
+import pandas as pd
+
 from portfolio_management_rl.utils.contstants import (
-    WINDOW_SIZE,
-    N_STOCKS,
-    INITIAL_DATE,
+    DATA_DIR,
     END_DATE,
+    INITIAL_DATE,
+    N_STOCKS,
+    WINDOW_SIZE,
 )
 from portfolio_management_rl.utils.logger import get_logger
 
@@ -25,6 +25,11 @@ YEARS_VAL = 7
 
 
 class Processor:
+    """
+    This class is in charge of processing the data. It creates a train, val and test dataset,
+    removes the assets with nan values and saves the processed data.
+    """
+
     def __init__(
         self,
         n_stocks: int = N_STOCKS,
@@ -47,7 +52,7 @@ class Processor:
         """
         PROCESSED_DATA_DIR.mkdir(exist_ok=True)
         all_nan = set()
-        datasets = dict()
+        datasets = {}
         paths = [path for path in DATA_DIR.glob("*.csv") if path.stem != "companies"]
         for path in paths:
             df = pd.read_csv(path, index_col=0, parse_dates=True)
@@ -86,9 +91,9 @@ class Processor:
         initial_test_date = final_date - pd.DateOffset(years=self.years_test)
         initial_val_date = initial_test_date - pd.DateOffset(years=self.years_val)
 
-        train_datasets = dict()
-        val_datasets = dict()
-        test_datasets = dict()
+        train_datasets = {}
+        val_datasets = {}
+        test_datasets = {}
         for name, df in datasets.items():
             train_datasets[name] = df.loc[:initial_val_date]
 
@@ -102,9 +107,9 @@ class Processor:
             ]  # 252 trading days in a year
 
         # Save the datasets
-        (PROCESSED_DATA_DIR / f"train").mkdir(exist_ok=True)
-        (PROCESSED_DATA_DIR / f"val").mkdir(exist_ok=True)
-        (PROCESSED_DATA_DIR / f"test").mkdir(exist_ok=True)
+        (PROCESSED_DATA_DIR / "train").mkdir(exist_ok=True)
+        (PROCESSED_DATA_DIR / "val").mkdir(exist_ok=True)
+        (PROCESSED_DATA_DIR / "test").mkdir(exist_ok=True)
 
         for name, df in train_datasets.items():
             df.iloc[:, :N_STOCKS].to_csv(

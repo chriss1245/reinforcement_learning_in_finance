@@ -2,17 +2,15 @@
 This file contains the backtester class.
 """
 
-from portfolio_management_rl.agents.base import BaseAgent
-from portfolio_management_rl.market_environment.market_env import MarketEnv
-from portfolio_management_rl.market_environment.commons import MarketEnvState
-from portfolio_management_rl.market_environment.buffer import Buffer
+from typing import Dict, List
 
-from portfolio_management_rl.utils.logger import get_logger
 import numpy as np
-
 from tqdm import tqdm
-from typing import List, Tuple, Dict, Any, Optional
-from portfolio_management_rl.utils.dtypes import Phase
+
+from portfolio_management_rl.agents.base import BaseAgent
+from portfolio_management_rl.market_environment.buffer import Buffer
+from portfolio_management_rl.market_environment.market_env import MarketEnv
+from portfolio_management_rl.utils.logger import get_logger
 
 logger = get_logger(__file__)
 

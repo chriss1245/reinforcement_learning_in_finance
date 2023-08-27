@@ -75,15 +75,14 @@ class EqualWeightAgent(BaseAgent):
             self.first_step = False
             return {"distribution": self.weights.copy(), "rebalance": True}
 
+        if self.first_step:
+            self.first_step = False
+            return {"distribution": self.weights.copy(), "rebalance": True}
         else:
-            if self.first_step:
-                self.first_step = False
-                return {"distribution": self.weights.copy(), "rebalance": True}
-            else:
-                return {
-                    "distribution": state.net_distribution.copy(),
-                    "rebalance": False,
-                }
+            return {
+                "distribution": state.net_distribution.copy(),
+                "rebalance": False,
+            }
 
     def update(
         self,

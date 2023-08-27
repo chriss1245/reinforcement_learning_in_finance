@@ -1,26 +1,25 @@
 """
-This module implements a random agent. The purpose of this agent is to serve as a baseline to compare the performance of other agents.
-Additianally, it can be helpful reducing the suvivorship bias of the dataset. Since the random agent does not learn, its performance 
-will mark the performance of one of the worst agents possible. So we can correct the performance of other agents by substracting the
-performance of the random agent.
+This module implements a random agent. The purpose of this agent is to serve as 
+a baseline to compare the performance of other agents.
+Additianally, it can be helpful reducing the suvivorship bias of the dataset. 
 """
 
-from typing import Union
-from gym.spaces.dict import Dict
 import numpy as np
-from torch import Tensor
-from .base import BaseAgent
-from portfolio_management_rl.utils.contstants import N_STOCKS
+
 from portfolio_management_rl.market_environment.market_env import MarketEnvState
+from portfolio_management_rl.utils.contstants import N_STOCKS
+
+from .base import BaseAgent
 from .efficient_frotier_agent import EfficientFrontierAgent
 from .equal_weight_agent import EqualWeightAgent
 
 
 class RandomAgent(BaseAgent):
     """
-    This module implements a random agent. The purpose of this agent is to serve as a baseline to compare the performance of other agents.
-    Additianally, it can be helpful reducing the suvivorship bias of the dataset. Since the random agent does not learn, its performance
-    will mark the performance of one of the worst agents possible. So we can correct the performance of other agents by substracting the
+    This module implements a random agent. The purpose of this agent is to serve as a baseline
+    to compare the performance of other agents. Additianally, it can be helpful reducing the suvivorship
+    bias of the dataset. Since the random agent does not learn, its performance will mark the performance
+    of one of the worst agents possible. So we can correct the performance of other agents by substracting the
     performance of the random agent.
     """
 
@@ -81,6 +80,13 @@ class RandomAgent(BaseAgent):
 
 
 class InsecureAgent(BaseAgent):
+    """
+    The insecure agent uses make decisions based on the performance of other agents. It is insecure because it does not know which
+    agent is the best, so it randomly chooses one of the agents at each act step.
+
+    It is very useful in order to make exploration. This can be interesting for generating replay buffers
+    """
+
     def __init__(self, n_stocks: int = N_STOCKS):
         self.n_stocks = n_stocks
 

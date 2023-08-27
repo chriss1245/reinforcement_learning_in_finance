@@ -8,10 +8,10 @@ from typing import Union
 
 import mlflow
 import numpy as np
+import pandas as pd
 from gym.spaces.dict import Dict
-from pypfopt import expected_returns
+from pypfopt import EfficientSemivariance, expected_returns
 from pypfopt.efficient_frontier import EfficientFrontier
-from pypfopt import EfficientSemivariance
 from pypfopt.risk_models import (
     CovarianceShrinkage,
     fix_nonpositive_semidefinite,
@@ -23,8 +23,6 @@ from torch import Tensor
 from portfolio_management_rl.market_environment.market_env import MarketEnvState
 
 from .base import BaseAgent
-
-import pandas as pd
 
 
 class EfficientFrontierAgent(BaseAgent):
@@ -213,8 +211,9 @@ class EfficientFrontierAgent(BaseAgent):
 
 class EfficientSemivarianceAgent(BaseAgent):
     """
-    This agent uses the semivariance (downside risk) in order to rebalance our portfolio every time step to have the weights
-    that are on the efficient frontier. Insted of focusing in the sharpe ratio, it focuses on the sortino ratio.
+    This agent uses the semivariance (downside risk) in order to rebalance our
+    portfolio every time step to have the weights that are on the efficient frontier.
+    Insted of focusing in the sharpe ratio, it focuses on the sortino ratio.
     """
 
     def __init__(

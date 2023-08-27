@@ -46,7 +46,7 @@ class TestDataset(unittest.TestCase):
         )
 
         with self.assertRaises(IndexError):
-            train_dataset[len(train_dataset)]
+            _ = train_dataset[len(train_dataset)]
 
     def test_mixup(self):
         """

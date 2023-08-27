@@ -13,3 +13,4 @@ ipykernel
 mlflow==2.5
 PyPortfolioOpt
 torchrl
+h5py

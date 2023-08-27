@@ -1,21 +1,20 @@
 """
-Buffer class which stores a the list of transtions for later use in the replay buffer in a technique called experience replay for
-    off-line training. This method is used to break the correlation between consecutive samples and to avoid the problem of forgetting
-    previous experiences. Also is more efficient to train the network with a batch of samples than with a single sample.
+Buffer class which stores a the list of transtions for later use in the replay buffer in a 
+technique called experience replay for off-line training. This method is used to break the correlation 
+between consecutive samples and to avoid the problem of forgetting previous experiences. Also is more 
+efficient to train the network with a batch of samples than with a single sample.
 """
 from __future__ import annotations
 
-import numpy as np
-from portfolio_management_rl.utils.contstants import (
-    N_STOCKS,
-    WINDOW_SIZE,
-)
+import datetime
+from pathlib import Path
+from typing import Optional
+
 import h5py
+import numpy as np
 
 from portfolio_management_rl.market_environment.commons import MarketEnvState
-from pathlib import Path
-import datetime
-from typing import Optional
+from portfolio_management_rl.utils.contstants import N_STOCKS, WINDOW_SIZE
 
 MAX_BUFFER_SIZE = 50000
 
@@ -31,8 +30,6 @@ class MaxBufferSizeError(Exception):
 class Buffer:
     """
     Buffer for experience replay and imitation learning.
-
-
     """
 
     def __init__(
@@ -225,10 +222,12 @@ class Buffer:
 
         Args:
             batch_size: The size of the batch to sample.
-            prioritized: If True, sample the batch with prioritized sampling (the latest transitions have more probability to be sampled).
+            prioritized: If True, sample the batch with prioritized sampling
+                (the latest transitions have more probability to be sampled).
 
         Returns:
-            A tuple with the states, actions, next states, rewards and dones. represented as numpy arrays and dictionaries.
+            A tuple with the states, actions, next states, rewards and dones. represented as numpy arrays
+            and dictionaries.
         """
 
         batch_size = batch_size or self.batch_size
@@ -241,7 +240,7 @@ class Buffer:
             )
         else:
             idxs = np.random.randint(
-                low=0, high=self.buffer_counter, size=(batch_size,), dtype=np.int32
+                low=0, high=self.idx, size=(batch_size,), dtype=np.int32
             )
 
         actions = {

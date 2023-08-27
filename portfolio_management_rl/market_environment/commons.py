@@ -125,8 +125,11 @@ class MarketEnvState:
         Returns:
             float: Net worth of the portfolio.
         """
-        prices = np.append(self.prices, 1)  # balance
-        return np.sum(self.portfolio * prices)
+        if isinstance(self.portfolio, np.ndarray):
+            prices = np.append(self.prices, 1)  # balance
+            return np.sum(self.portfolio * prices)
+
+        return self.portfolio[:-1].dot(self.prices).item() + self.balance
 
     @property
     def net_distribution(self) -> np.ndarray:

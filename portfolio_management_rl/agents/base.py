@@ -2,7 +2,7 @@
 This module contains the base agent class that all other agents inherit from.
 """
 
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 from typing import Union
 
 import numpy as np
@@ -62,7 +62,8 @@ class BaseAgent(ABC):
             path (str): Path to log the agent to.
         """
 
-    @abstractproperty
+    @abstractmethod
+    @property
     def parameters(self) -> dict:
         """
         Returns a Dictionary of parameters

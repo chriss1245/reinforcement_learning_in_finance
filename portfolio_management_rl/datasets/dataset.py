@@ -72,7 +72,7 @@ class StocksDataset(Dataset):
 
         if offset > step_size_days:
             logger.warning(
-                f"The offset ({offset}) is greater than the step size ({self.step_size_days})."
+                f"The offset ({offset}) is greater than the step size ({step_size_days})."
             )
 
         data_dir = data_dir / phase.value
@@ -141,14 +141,26 @@ class StocksDataset(Dataset):
 
         return x, y
 
-    def get_date(self, idx):
+    def get_date(self, idx: int) -> pd.Timestamp:
+        """
+        Returns the date which  belongs to the idx sample.
+
+        Args:
+            idx: Index of the sample.
+
+        Returns:
+            Date of the sample.
+        """
         return self.data.index[
             (idx * self.step_size_days + self.window_size - 1) : (
                 idx * self.step_size_days + self.window_size
             )
         ][0]
 
-    def get_dates(self):
+    def get_dates(self) -> list[pd.Timestamp]:
+        """
+        Returns the dates of the samples.
+        """
         return [self.get_date(idx) for idx in range(self.len - 1)]
 
     def get_compny_names(self):

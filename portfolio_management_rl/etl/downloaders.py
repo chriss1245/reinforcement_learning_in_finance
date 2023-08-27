@@ -5,7 +5,6 @@ This module contains the required methods for data gathering
 import re
 from abc import ABC
 from pathlib import Path
-from typing import Optional
 import shutil
 
 import pandas as pd
@@ -105,24 +104,8 @@ class SP500Downloader(Downloader):
         indexes_df = pd.DataFrame.from_dict(self.__risk_free_assets)
         indexes_df.to_csv(DATA_DIR / f"{self.__folder_name}/risk_free/companies.csv")
 
-        # download the companies using yfinance and wikipedia
-        companies_df, changes_df = pd.read_html(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        )
-
-        companies_dict = self.get_companies_dict(changes_df, companies_df)
-        all_companies_df = pd.DataFrame.from_dict(companies_dict, orient="index")
-        all_companies_df.reset_index(names=["ticker"], inplace=True)
-        all_companies_df.date_added = all_companies_df.date_added.apply(
-            SP500Downloader.sanitize_date
-        )
-        all_companies_df.date_added = pd.to_datetime(
-            all_companies_df.date_added, format="mixed"
-        )
-        all_companies_df.date_removed = pd.to_datetime(
-            all_companies_df.date_removed, format="mixed"
-        )
-
+        # download the companies using yfinance
+        all_companies_df = self.get_all_companies()
         all_companies_df.to_csv(DATA_DIR / f"{self.__folder_name}/all/companies.csv")
 
         download_df = pd.concat([all_companies_df, indexes_df])
@@ -144,7 +127,6 @@ class SP500Downloader(Downloader):
             if path.exists():
                 continue
             try:
-                ticker = yf.Ticker(company)
                 data = yf.download(company, start=self.initial_date, interval="1d")
 
                 if len(data) == 0:
@@ -177,6 +159,42 @@ class SP500Downloader(Downloader):
                 f.write(f"{company}: {name}\n")
 
         logger.info("Creating the dataframes")
+        self.create_final_dataframes(all_companies_df, indexes_df, landing_dir)
+
+        if self.cleanup:
+            shutil.rmtree(landing_dir)
+
+    def get_all_companies(self) -> pd.DataFrame:
+        """
+        Returns:
+            A dataframe with all the companies in the s&p500
+        """
+        # read companies which where added and removed from the s&p500
+        # wikipedia
+        companies_df, changes_df = pd.read_html(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        )
+
+        companies_dict = self.get_companies_dict(changes_df, companies_df)
+        all_companies_df = pd.DataFrame.from_dict(companies_dict, orient="index")
+        all_companies_df.reset_index(names=["ticker"], inplace=True)
+        all_companies_df.date_added = all_companies_df.date_added.apply(
+            SP500Downloader.sanitize_date
+        )
+        all_companies_df.date_added = pd.to_datetime(
+            all_companies_df.date_added, format="mixed"
+        )
+        all_companies_df.date_removed = pd.to_datetime(
+            all_companies_df.date_removed, format="mixed"
+        )
+        return all_companies_df
+
+    def create_final_dataframes(
+        self,
+        all_companies_df: pd.DataFrame,
+        indexes_df: pd.DataFrame,
+        landing_dir: Path,
+    ):
         for df, name in zip([all_companies_df, indexes_df], ["all", "risk_free"]):
             close_df = pd.DataFrame(columns=df.ticker.tolist())
             adj_close_df = pd.DataFrame(columns=df.ticker.tolist())
@@ -210,9 +228,6 @@ class SP500Downloader(Downloader):
             open_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/open.csv")
             high_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/high.csv")
             low_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/low.csv")
-
-        if self.cleanup:
-            shutil.rmtree(landing_dir)
 
     def get_companies_dict(
         self, changes_df: pd.DataFrame, companies_df: pd.DataFrame
@@ -262,9 +277,11 @@ class SP500Downloader(Downloader):
         for company in all_companies:
             if company in exclude:
                 continue
-            if company in ticker_names_dict:
-                company = ticker_names_dict[company]
+
             if company in companies:
+                if company in ticker_names_dict:
+                    company = ticker_names_dict[company]
+
                 companies_dict[company] = {
                     "name": companies_df[companies_df["Symbol"] == company][
                         "Security"
