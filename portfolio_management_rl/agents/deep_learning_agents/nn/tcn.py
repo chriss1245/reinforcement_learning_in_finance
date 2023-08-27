@@ -8,6 +8,7 @@ from torch import nn
 from torch.nn import functional as F
 from portfolio_management_rl.utils.logger import get_logger
 import math
+import torch
 
 logger = get_logger(__file__)
 
@@ -123,8 +124,7 @@ class _ResidualBlock(nn.Module):
 
 class TemporalConvNet(nn.Module):
     """
-    PyTorch module implementing a TCN
-
+    PyTorch module implementing a TCN with residual blocks.
     """
 
     def __init__(
@@ -135,7 +135,6 @@ class TemporalConvNet(nn.Module):
         dilation_base: int,
         weight_norm: bool,
         target_size: int,
-        target_length: int,
         dropout: float,
         window_size: int,
         num_layers: Optional[int] = None,
@@ -189,7 +188,6 @@ class TemporalConvNet(nn.Module):
         self.input_size = input_size
         self.n_filters = num_filters
         self.kernel_size = kernel_size
-        self.target_length = target_length
         self.target_size = target_size
         self.dilation_base = dilation_base
         self.dropout = dropout
@@ -235,16 +233,7 @@ class TemporalConvNet(nn.Module):
             ]
         )
 
-        # passes seq_len x channels to 1 x channels
-        self.decoder = nn.Sequential(
-            nn.Conv1d(
-                self.windows_size, 1, 1
-            ),  # (batch_size, 1, seq_len) pointwise convolution
-            nn.Flatten(),  # (batch_size, seq_len)
-            nn.Softmax(),  # (batch_size, seq_len)
-        )
-
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor) -> Tensor:
         """
         Forward pass of the TCN module. The input is a tuple containing the input time series
         and the corresponding time indices.
@@ -259,6 +248,39 @@ class TemporalConvNet(nn.Module):
 
         x = x.transpose(1, 2)  # (batch_size, seq_len, channels)
 
-        x = self.decoder(x)  # (batch_size, seq_len, 1)
-
         return x
+
+
+class TemporalAttentionPooling(nn.Module):
+    """
+    Temporal Attention Pooling Layer
+    Input shape : (batch_size, num_timesteps, num_features)
+    Output shape: (batch_size, num_features)
+    """
+
+    def __init__(self, num_features):
+        super().__init__()
+        self.num_features = num_features
+        self.u1 = nn.Parameter(torch.randn(num_features))
+
+    def forward(self, x):
+        """
+        Forward pass for Temporal Attention Pooling
+        Args:
+        x : torch.Tensor : (batch_size, num_timesteps, num_featu res)
+            Input tensor containing features
+        Returns:
+        weighted_sum : torch.Tensor : (batch_size, num_features)
+            Tensor containing the weighted sum of features across timesteps
+        """
+        # Calculate attention energies
+        energy = torch.exp(torch.matmul(x, self.u1))
+
+        # Calculate attention weights
+        energy_sum = torch.sum(energy, dim=1, keepdim=True)
+        attention_weights = energy / energy_sum
+
+        # Calculate weighted sum of features across timesteps
+        weighted_sum = torch.sum(x * attention_weights.unsqueeze(-1), dim=1)
+
+        return weighted_sum
