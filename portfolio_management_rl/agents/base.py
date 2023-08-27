@@ -62,8 +62,8 @@ class BaseAgent(ABC):
             path (str): Path to log the agent to.
         """
 
-    @abstractmethod
     @property
+    @abstractmethod
     def parameters(self) -> dict:
         """
         Returns a Dictionary of parameters
