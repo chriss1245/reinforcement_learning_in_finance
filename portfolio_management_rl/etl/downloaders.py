@@ -6,6 +6,7 @@ import re
 from abc import ABC
 from pathlib import Path
 from typing import Optional
+import shutil
 
 import pandas as pd
 import yfinance as yf
@@ -52,39 +53,59 @@ class SP500Downloader(Downloader):
     }
 
     # Add as initial asset the USA bonds of  5years
-    __risk_free_asset = {
-        "ticker": "^FVX",
-        "name": "USA treasury bond 10Y",
-        "sector": "Bonds",
-        "industry": None,
-        "date_added": "1962-01-02",
-        "date_removed": None,
-        "is_in_index": False,
-    }
+    __risk_free_assets = [
+        {
+            "ticker": "^FVX",
+            "name": "USA treasury bond 5Y (FVX)",
+            "sector": "Bonds",
+            "industry": None,
+            "date_added": "1962-01-02",
+            "date_removed": None,
+            "is_in_index": False,
+        },
+        {
+            "ticker": "^GSPC",
+            "name": "S&P 500 index",
+            "sector": "Index",
+            "industry": None,
+            "date_added": "1928-01-02",
+            "date_removed": None,
+            "is_in_index": False,
+        },
+    ]
 
     def __init__(
         self,
         initial_date: str = "1983-12-31",
-        end_date: Optional[str] = "2023-08-20",
+        cleanup: bool = True,
     ):
         """
         Historical Price Downloader for the s&p 500
+
+        Args:
+            initial_date: The initial date to download the data
+            cleanup: Whether to delete the raw data after the download
         """
 
         self.initial_date = initial_date
-        self.end_date = end_date
+        self.cleanup = cleanup
 
         # create the parent dir
         root = DATA_DIR / self.__folder_name
         root.mkdir(exist_ok=True)
         (root / "all").mkdir(exist_ok=True)
-        (root / "all_survived").mkdir(exist_ok=True)
+        (root / "risk_free").mkdir(exist_ok=True)
 
     def download(self):
         """
         Downloads the data according to the givem initialization
         """
 
+        # download the indexes
+        indexes_df = pd.DataFrame.from_dict(self.__risk_free_assets)
+        indexes_df.to_csv(DATA_DIR / f"{self.__folder_name}/risk_free/companies.csv")
+
+        # download the companies using yfinance and wikipedia
         companies_df, changes_df = pd.read_html(
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
         )
@@ -104,30 +125,18 @@ class SP500Downloader(Downloader):
 
         all_companies_df.to_csv(DATA_DIR / f"{self.__folder_name}/all/companies.csv")
 
-        # Filter by date
-        temp = all_companies_df[all_companies_df.date_added <= self.initial_date]
-        if self.end_date:
-            temp = temp[temp.data_added >= self.end_date]
-
-        # The first asset is the risk free
-        new = pd.DataFrame.from_dict([self.__risk_free_asset])
-        survived_df = pd.concat([new, temp], ignore_index=True)
-        survived_df.to_csv(
-            DATA_DIR / f"{self.__folder_name}/all_survived/companies.csv"
-        )
-        all_companies_df = pd.concat([new, all_companies_df], ignore_index=True)
+        download_df = pd.concat([all_companies_df, indexes_df])
 
         errors = 0
         companies_error = []
         names_error = []
-        found_data = []
 
         landing_dir = DATA_DIR / f"{self.__folder_name}/raw_prices"
         landing_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info("Downloading the data")
         for _, (company, name) in enumerate(
-            zip(all_companies_df["ticker"], all_companies_df["name"])
+            zip(download_df["ticker"], download_df["name"])
         ):
             path = landing_dir / f"{company}.csv"
 
@@ -136,32 +145,28 @@ class SP500Downloader(Downloader):
                 continue
             try:
                 ticker = yf.Ticker(company)
-                data = yf.download(
-                    company, start=self.initial_date, end=self.end_date, interval="1d"
-                )
+                data = yf.download(company, start=self.initial_date, interval="1d")
 
                 if len(data) == 0:
                     data = yf.download(
                         company.replace(".", "-"),
                         start=self.initial_date,
-                        end=self.end_date,
                         interval="1d",
                     )
 
                 if len(data) > 0:
                     data.to_csv(path)
-                    found_data.append(True)
                 else:
                     errors += 1
                     companies_error.append(company)
                     names_error.append(name)
-                    found_data.append(False)
+
             except yf.exceptions.YFinanceException:
                 errors += 1
                 companies_error.append(company)
                 names_error.append(name)
-                found_data.append(False)
 
+        logger.info(f"Errors: {errors}. Writting companies_not_found.txt")
         # write a txt file with the companies that could not be found
         with open(
             DATA_DIR / f"{self.__folder_name}/companies_not_found.txt",
@@ -172,7 +177,7 @@ class SP500Downloader(Downloader):
                 f.write(f"{company}: {name}\n")
 
         logger.info("Creating the dataframes")
-        for df, name in zip([all_companies_df, survived_df], ["all", "all_survived"]):
+        for df, name in zip([all_companies_df, indexes_df], ["all", "risk_free"]):
             close_df = pd.DataFrame(columns=df.ticker.tolist())
             adj_close_df = pd.DataFrame(columns=df.ticker.tolist())
             open_df = pd.DataFrame(columns=df.ticker.tolist())
@@ -205,6 +210,9 @@ class SP500Downloader(Downloader):
             open_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/open.csv")
             high_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/high.csv")
             low_df.to_csv(DATA_DIR / f"{self.__folder_name}/{name}/low.csv")
+
+        if self.cleanup:
+            shutil.rmtree(landing_dir)
 
     def get_companies_dict(
         self, changes_df: pd.DataFrame, companies_df: pd.DataFrame
@@ -328,6 +336,7 @@ class SP500Downloader(Downloader):
                 except IndexError as e:
                     logger.debug(f"could not find company {company} in changes_df")
                     logger.debug(e)
+
         return companies_dict
 
     @staticmethod
