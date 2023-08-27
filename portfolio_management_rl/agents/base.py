@@ -2,7 +2,7 @@
 This module contains the base agent class that all other agents inherit from.
 """
 
-from abc import ABC
+from abc import ABC, abstractmethod, abstractproperty
 from typing import Union
 
 import numpy as np
@@ -17,6 +17,7 @@ class BaseAgent(ABC):
     Base Agent. Defines the interface for all agents.
     """
 
+    @abstractmethod
     def act(self, state: MarketEnvState) -> Dict:
         """
         Takes in a state and returns an action.
@@ -27,8 +28,8 @@ class BaseAgent(ABC):
         Returns:
             dict: Action dictionary.
         """
-        raise NotImplementedError
 
+    @abstractmethod
     def update(
         self,
         state: MarketEnvState,
@@ -45,8 +46,14 @@ class BaseAgent(ABC):
             reward (float): Reward value.
             next_state (dict): Next state dictionary.
         """
-        raise NotImplementedError
 
+    @abstractmethod
+    def reset(self) -> None:
+        """
+        Resets the agent to its initial state.
+        """
+
+    @abstractmethod
     def log(self, **kwargs) -> None:
         """
         Logs the agent in mlflow.
@@ -54,4 +61,9 @@ class BaseAgent(ABC):
         Args:
             path (str): Path to log the agent to.
         """
-        raise NotImplementedError
+
+    @abstractproperty
+    def parameters(self) -> dict:
+        """
+        Returns a Dictionary of parameters
+        """
