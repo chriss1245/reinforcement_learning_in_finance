@@ -51,6 +51,7 @@ class StocksDataset(Dataset):
         data_dir: Path = DATA_DIR / "sp500/processed",
         phase: Phase = Phase.TRAIN,
         step_size_days: float = FORECAST_HORIZON,
+        offset: int = 0,
         mixup_config: Optional[MixUpConfig] = None,
     ):
         """
@@ -69,12 +70,18 @@ class StocksDataset(Dataset):
                 "Please set the phase to train."
             )
 
+        if offset > step_size_days:
+            logger.warning(
+                f"The offset ({offset}) is greater than the step size ({self.step_size_days})."
+            )
+
         data_dir = data_dir / phase.value
 
         # Main signal
         self.data = pd.read_csv(
             data_dir / "adj_close.csv", index_col=0, parse_dates=True
         )
+        self.data = self.data.iloc[offset:]
         if self.data.isna().sum().sum() > 0:
             raise ValueError("The data contains nan values")
 
@@ -93,6 +100,7 @@ class StocksDataset(Dataset):
                 self.mixup_data[sequence] = pd.read_csv(
                     data_dir / f"{sequence}.csv", index_col=0, parse_dates=True
                 )
+                self.mixup_data[sequence] = self.mixup_data[sequence].iloc[offset:]
                 if self.mixup_data[sequence].isna().sum().sum() > 0:
                     raise ValueError("The data contains nan values")
 
@@ -132,6 +140,16 @@ class StocksDataset(Dataset):
             )
 
         return x, y
+
+    def get_date(self, idx):
+        return self.data.index[
+            (idx * self.step_size_days + self.window_size - 1) : (
+                idx * self.step_size_days + self.window_size
+            )
+        ][0]
+
+    def get_dates(self):
+        return [self.get_date(idx) for idx in range(self.len - 1)]
 
     def get_compny_names(self):
         """
