@@ -52,6 +52,15 @@ class EqualWeightAgent(BaseAgent):
             "rebalance": self.rebalance,
         }
 
+    def reset(self) -> None:
+        """
+        Resets the agent to its initial state.
+        """
+        self.weights = np.ones(shape=(N_STOCKS + 1,))
+        self.weights[-1] = 0
+        self.weights /= np.sum(self.weights)
+        self.first_step = True
+
     def act(self, state: MarketEnvState) -> Dict:
         """
         Takes in a state and returns an action.
@@ -62,14 +71,19 @@ class EqualWeightAgent(BaseAgent):
         Returns:
             dict: Action dictionary.
         """
-        if self.first_step:
-            self.first_step = False
-            return {"distribution": self.weights}
-
         if self.rebalance:
-            return {"distribution": self.weights}
+            self.first_step = False
+            return {"distribution": self.weights.copy(), "rebalance": True}
 
-        return {"distribution": state.net_distribution}
+        else:
+            if self.first_step:
+                self.first_step = False
+                return {"distribution": self.weights.copy(), "rebalance": True}
+            else:
+                return {
+                    "distribution": state.net_distribution.copy(),
+                    "rebalance": False,
+                }
 
     def update(
         self,
