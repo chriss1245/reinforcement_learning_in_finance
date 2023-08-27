@@ -98,6 +98,10 @@ class MarketEnvState:
         Args:
             value (np.ndarray): New shares.
         """
+        if value.shape != self.portfolio[:-1].shape:
+            raise ValueError(
+                "Shape of the value does not match the shape of the shares."
+            )
         self.portfolio[:-1] = value
 
     @property
@@ -121,7 +125,8 @@ class MarketEnvState:
         Returns:
             float: Net worth of the portfolio.
         """
-        return self.balance + self.investment
+        prices = np.append(self.prices, 1)  # balance
+        return np.sum(self.portfolio * prices)
 
     @property
     def net_distribution(self) -> np.ndarray:
