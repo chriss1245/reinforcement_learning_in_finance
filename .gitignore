@@ -1,5 +1,7 @@
 # Data files
 data
+benchmarks
+buffers
 
 # Regular expression denoting files to ignore
 ignore_*
