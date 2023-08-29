@@ -12,6 +12,7 @@ PACKAGE_DIR = PROJECT_DIR / "portfolio_managemaner_rl"
 DATA_DIR = PROJECT_DIR / "data"
 BUFFER_DIR = PROJECT_DIR / "buffer"
 TESTS_DIR = PROJECT_DIR / "tests"
+LOGS_DIR = PROJECT_DIR / "logs"
 
 MLFLOW_TRACKING_URI = (PROJECT_DIR / "mlflow").as_uri()
 # Used as an overcost for all the stocks when buying in order to avoid floating point precision errors

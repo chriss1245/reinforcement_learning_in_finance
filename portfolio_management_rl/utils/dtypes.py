@@ -21,3 +21,16 @@ class Phase(Enum):
     VAL = "val"
     TRAIN_VAL = "train_val"
     TEST = "test"
+
+
+class Device(Enum):
+    """
+    Enum for the device to use.
+
+    Attributes:
+        CPU: CPU
+        GPU: GPU
+    """
+
+    CPU = "cpu"
+    GPU = "cuda"

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, Dict
 
 import h5py
 import numpy as np
+import torch
 
 from portfolio_management_rl.market_environment.commons import MarketEnvState
 from portfolio_management_rl.utils.contstants import N_STOCKS, WINDOW_SIZE
@@ -216,7 +217,15 @@ class Buffer:
 
         self.idx += len(buffer)
 
-    def sample(self, batch_size: Optional[int] = None, prioritized: bool = False):
+    def sample_dict(
+        self, batch_size: Optional[int] = None, prioritized: bool = False
+    ) -> Tuple[
+        Dict[str, np.ndarray],
+        Dict[str, np.ndarray],
+        Dict[str, np.ndarray],
+        np.ndarray,
+        np.ndarray,
+    ]:
         """
         Sample a batch of transitions from the buffer.
 
@@ -256,6 +265,88 @@ class Buffer:
             "history": self.next_states_history_buffer[idxs],
             "net_distribution": self.next_states_portfolio_buffer[idxs],
         }
+
+        return (
+            states,
+            actions,
+            next_states,
+            self.rewards_buffer[idxs],
+            self.dones_buffer[idxs],
+        )
+
+    def sample(
+        self,
+        batch_size: Optional[int] = None,
+        prioritized: bool = False,
+        tensor: bool = False,
+    ) -> Tuple[
+        Tuple[np.ndarray], Tuple[np.ndarray], Tuple[np.ndarray], np.ndarray, np.ndarray
+    ]:
+        """
+        Sample a batch of transitions from the buffer.
+
+        Args:
+            batch_size: The size of the batch to sample.
+            prioritized: If True, sample the batch with prioritized sampling
+                (the latest transitions have more probability to be sampled).
+            tensor: If True, return the data as torch tensors.
+
+        Returns:
+            A tuple with the states, actions, next states, rewards and dones. represented as numpy arrays
+            and dictionaries.
+        """
+
+        batch_size = batch_size or self.batch_size
+
+        if prioritized:
+            idxs_prob = np.arange(self.idx, 0, -1)
+            idxs_prob = idxs_prob / np.sum(idxs_prob)
+            idxs = np.random.choice(
+                np.arange(self.idx), size=(batch_size,), p=idxs_prob
+            )
+        else:
+            idxs = np.random.randint(
+                low=0, high=self.idx, size=(batch_size,), dtype=np.int32
+            )
+
+        if tensor:
+            actions = (
+                torch.from_numpy(self.actions_buffer[idxs]),
+                torch.from_numpy(self.act_buffer[idxs]),
+            )
+
+            states = (
+                torch.from_numpy(self.states_history_buffer[idxs]),
+                torch.from_numpy(self.states_weights_buffer[idxs]),
+            )
+
+            next_states = (
+                torch.from_numpy(self.next_states_history_buffer[idxs]),
+                torch.from_numpy(self.next_states_portfolio_buffer[idxs]),
+            )
+
+            return (
+                states,
+                actions,
+                next_states,
+                torch.from_numpy(self.rewards_buffer[idxs]),
+                torch.from_numpy(self.dones_buffer[idxs]),
+            )
+
+        actions = (
+            self.actions_buffer[idxs],
+            self.act_buffer[idxs],
+        )
+
+        states = (
+            self.states_history_buffer[idxs],
+            self.states_weights_buffer[idxs],
+        )
+
+        next_states = (
+            self.next_states_history_buffer[idxs],
+            self.next_states_portfolio_buffer[idxs],
+        )
 
         return (
             states,
