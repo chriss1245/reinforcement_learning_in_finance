@@ -5,7 +5,7 @@ numpy
 pandas
 matplotlib
 torch
-mlflow==2.5
+mlflow==2.6.0
 PyPortfolioOpt
 torchrl
 h5py
