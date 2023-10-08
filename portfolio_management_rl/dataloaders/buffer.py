@@ -39,11 +39,13 @@ class Buffer:
         batch_size: int = 32,
         n_stocks: int = N_STOCKS,
         window_size: int = WINDOW_SIZE,
+        normalize: bool = True,
     ):
         self.buffer_size = buffer_size
         self.window_size = window_size
         self.batch_size = batch_size
         self.n_stocks = n_stocks
+        self.normalize = normalize
 
         # actions bufferr composesd by the proposed portfolio distribution and a
         # flag indicating if do apply the proposed portfolio distribution or not
@@ -56,11 +58,9 @@ class Buffer:
         # environment and the current portfolio (in number of shaes) (the shares of money worth 1)
         # and the current shares for each stock
         self.states_history_buffer = np.zeros(
-            shape=(buffer_size, n_stocks, window_size), dtype=np.float32
+            shape=(buffer_size, window_size, n_stocks), dtype=np.float32
         )
-        self.states_portfolio_buffer = np.zeros(
-            shape=(buffer_size, n_stocks + 1), dtype=np.float32
-        )
+
         self.states_weights_buffer = np.zeros(
             shape=(buffer_size, n_stocks + 1), dtype=np.float32
         )
@@ -68,10 +68,7 @@ class Buffer:
         # next states buffer composed by the last window_size days of the market
         # environment and the next portfolio distribution
         self.next_states_history_buffer = np.zeros(
-            shape=(buffer_size, n_stocks, window_size), dtype=np.float32
-        )
-        self.next_states_portfolio_buffer = np.zeros(
-            shape=(buffer_size, n_stocks + 1), dtype=np.float32
+            shape=(buffer_size, window_size, n_stocks), dtype=np.float32
         )
         self.next_states_weights_buffer = np.zeros(
             shape=(buffer_size, n_stocks + 1), dtype=np.float32
@@ -96,8 +93,10 @@ class Buffer:
             raise BufferFullError
 
         # add the current state
-        self.states_history_buffer[self.idx] = state.history
-        self.states_portfolio_buffer[self.idx] = state.portfolio
+        history = state.history.T
+        if self.normalize:
+            history = (history / history[0, :]) - 1
+        self.states_history_buffer[self.idx] = history
         self.states_weights_buffer[self.idx] = state.net_distribution
 
         # add the action
@@ -105,8 +104,11 @@ class Buffer:
         self.act_buffer[self.idx] = action["rebalance"]
 
         # add the next state
-        self.next_states_history_buffer[self.idx] = next_state.history
-        self.next_states_portfolio_buffer[self.idx] = next_state.portfolio
+        history = next_state.history.T
+        if self.normalize:
+            history = (history / history[0, :]) - 1
+
+        self.next_states_history_buffer[self.idx] = history
         self.next_states_weights_buffer[self.idx] = next_state.net_distribution
 
         # add the reward
@@ -130,18 +132,14 @@ class Buffer:
         self.states_history_buffer[
             self.idx : self.idx + len(buffer)
         ] = buffer.states_history_buffer
-        self.states_portfolio_buffer[
-            self.idx : self.idx + len(buffer)
-        ] = buffer.states_portfolio_buffer
+
         self.states_weights_buffer[
             self.idx : self.idx + len(buffer)
         ] = buffer.states_weights_buffer
         self.next_states_history_buffer[
             self.idx : self.idx + len(buffer)
         ] = buffer.next_states_history_buffer
-        self.next_states_portfolio_buffer[
-            self.idx : self.idx + len(buffer)
-        ] = buffer.next_states_portfolio_buffer
+
         self.next_states_weights_buffer[
             self.idx : self.idx + len(buffer)
         ] = buffer.next_states_weights_buffer
@@ -173,12 +171,7 @@ class Buffer:
                 buffer.states_history_buffer[: len(buffer) - 1, :, :],
             ]
         )
-        self.states_portfolio_buffer = np.concatenate(
-            [
-                self.states_portfolio_buffer[: self.idx, :],
-                buffer.states_portfolio_buffer[: len(buffer) - 1, :],
-            ]
-        )
+
         self.states_weights_buffer = np.concatenate(
             [
                 self.states_weights_buffer[: self.idx, :],
@@ -189,13 +182,6 @@ class Buffer:
             [
                 self.next_states_history_buffer[: self.idx, :, :],
                 buffer.next_states_history_buffer[: len(buffer) - 1, :, :],
-            ]
-        )
-
-        self.next_states_portfolio_buffer = np.concatenate(
-            [
-                self.next_states_portfolio_buffer[: self.idx, :],
-                buffer.next_states_portfolio_buffer[: len(buffer) - 1, :],
             ]
         )
 
@@ -215,7 +201,7 @@ class Buffer:
 
         self.buffer_size += len(buffer)
 
-        self.idx += len(buffer)
+        self.idx += buffer.idx
 
     def sample_dict(
         self, batch_size: Optional[int] = None, prioritized: bool = False
@@ -279,6 +265,8 @@ class Buffer:
         batch_size: Optional[int] = None,
         prioritized: bool = False,
         tensor: bool = False,
+        device: str = "cpu",
+        permute: bool = True,
     ) -> Tuple[
         Tuple[np.ndarray], Tuple[np.ndarray], Tuple[np.ndarray], np.ndarray, np.ndarray
     ]:
@@ -311,26 +299,26 @@ class Buffer:
 
         if tensor:
             actions = (
-                torch.from_numpy(self.actions_buffer[idxs]),
-                torch.from_numpy(self.act_buffer[idxs]),
+                torch.from_numpy(self.actions_buffer[idxs]).to(device),
+                torch.from_numpy(self.act_buffer[idxs]).to(device),
             )
 
             states = (
-                torch.from_numpy(self.states_history_buffer[idxs]),
-                torch.from_numpy(self.states_weights_buffer[idxs]),
+                torch.from_numpy(self.states_history_buffer[idxs]).to(device),
+                torch.from_numpy(self.states_weights_buffer[idxs]).to(device),
             )
 
             next_states = (
-                torch.from_numpy(self.next_states_history_buffer[idxs]),
-                torch.from_numpy(self.next_states_portfolio_buffer[idxs]),
+                torch.from_numpy(self.next_states_history_buffer[idxs]).to(device),
+                torch.from_numpy(self.next_states_weights_buffer[idxs]).to(device),
             )
 
             return (
                 states,
                 actions,
                 next_states,
-                torch.from_numpy(self.rewards_buffer[idxs]),
-                torch.from_numpy(self.dones_buffer[idxs]),
+                torch.from_numpy(self.rewards_buffer[idxs]).to(device),
+                torch.from_numpy(self.dones_buffer[idxs]).to(device),
             )
 
         actions = (

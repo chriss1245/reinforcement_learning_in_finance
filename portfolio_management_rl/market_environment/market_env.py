@@ -10,7 +10,7 @@ from typing import Any, Optional, Tuple
 import gym
 import numpy as np
 
-from portfolio_management_rl.datasets.dataset import StocksDataset
+from portfolio_management_rl.dataloaders.dataset import StocksDataset
 from portfolio_management_rl.utils.contstants import N_STOCKS
 from portfolio_management_rl.utils.logger import get_logger
 
@@ -29,9 +29,8 @@ class MarketEnv(gym.Env):
     def __init__(
         self,
         dataset: StocksDataset,
-        initial_balance: float = 10000,
+        initial_balance: float = 100000,
         broker: Broker = Trading212(),
-        experiment_logdir: Optional[Path] = None,
     ):
         """
         Market environment. Simulates the market and offers an interface for
@@ -61,9 +60,6 @@ class MarketEnv(gym.Env):
 
         self.state = self.initial_state.copy()
 
-        # History
-        self.logdir = experiment_logdir
-
         # iterations
         self.iteration = 1
 
@@ -74,7 +70,25 @@ class MarketEnv(gym.Env):
         Returns:
             int: Length of the dataset.
         """
-        return len(self.dataset - 1)  # we have n-1 transitions
+        return len(self.dataset) - 1  # we have n-1 transitions
+
+    def change_start_point(self, start_point: int) -> None:
+        """
+        Changes the start point of the market environment.
+
+        Args:
+            start_point (int): New start point.
+        """
+        history, _ = self.dataset[start_point]
+        inital_balance = self.initial_state.balance
+        self.initial_state = MarketEnvState(
+            history=history,  # type: ignore
+            portfolio=np.zeros(shape=(N_STOCKS + 1,)),
+            done=False,
+        )
+        self.initial_state.balance = inital_balance
+        self.state = self.initial_state.copy()
+        self.iteration = start_point + 1
 
     @staticmethod
     def get_state_action(state: MarketEnvState) -> dict[str, Any]:
@@ -146,9 +160,16 @@ class MarketEnv(gym.Env):
 
         # If the episode has ended, the reward is the profit
         if self.state.done:
-            return next_gain
+            return 0
 
-        return next_gain - current_gain  # - regularization
+        # penalize the agent for not diversifying
+        # mse of the equal weight and the current distribution
+        equal_weight = np.ones_like(state.net_distribution) / len(
+            state.net_distribution
+        )
+        equal_weight_mse = np.mean(np.square(state.net_distribution - equal_weight))
+
+        return (next_gain - current_gain) - equal_weight_mse  # - regularization
 
     def step(
         self, action: dict[str, Any]
@@ -171,40 +192,43 @@ class MarketEnv(gym.Env):
             info (dict[str, Any]): Additional information.
         """
 
+        rebalance = action["rebalance"] > 0.5
+
         current_state = self.state.copy()
-
-        # execute the action
-        delta_distribution = (
-            action["distribution"][:-1] - current_state.net_distribution[:-1]
-        )
-
         cashflow = 0.0
-        # sell
-        sell = np.zeros_like(delta_distribution)
-        sell[delta_distribution < 0] = -delta_distribution[delta_distribution < 0]
-        if np.sum(sell) > 0:
-            sell = (
-                current_state.net_worth * sell / current_state.prices
-            )  # covert to quantity
+        rebalance = True
+        if rebalance:
+            # execute the action
+            delta_distribution = (
+                action["distribution"][:-1] - current_state.net_distribution[:-1]
+            )
 
-            # if sell is greater than shares, sell all shares
-            sell[sell > current_state.shares] = current_state.shares[
-                sell > current_state.shares
-            ]
-            cashflow += self.broker.sell(current_state, sell)
+            # sell
+            sell = np.zeros_like(delta_distribution)
+            sell[delta_distribution < 0] = -delta_distribution[delta_distribution < 0]
+            if np.sum(sell) > 0:
+                sell = (
+                    current_state.net_worth * sell / current_state.prices
+                )  # covert to quantity
 
-        # buy
-        buy = np.zeros_like(delta_distribution)
+                # if sell is greater than shares, sell all shares
+                sell[sell > current_state.shares] = current_state.shares[
+                    sell > current_state.shares
+                ]
+                cashflow += self.broker.sell(current_state, sell)
 
-        buy[delta_distribution > 0] = delta_distribution[delta_distribution > 0]
-        # normalize the buy vector to add up to 1
-        # (because selling is alters the net worth   because of the transaction cost)
-        if np.sum(buy) > 0:
-            buy /= np.sum(buy)
+            # buy
+            buy = np.zeros_like(delta_distribution)
 
-            # covert to quantity
-            buy_quantities = self.broker.get_quantity_to_buy(current_state, buy)
-            cashflow += self.broker.buy(current_state, buy_quantities)
+            buy[delta_distribution > 0] = delta_distribution[delta_distribution > 0]
+            # normalize the buy vector to add up to 1
+            # (because selling is alters the net worth   because of the transaction cost)
+            if np.sum(buy) > 0:
+                buy /= np.sum(buy)
+
+                # covert to quantity
+                buy_quantities = self.broker.get_quantity_to_buy(current_state, buy)
+                cashflow += self.broker.buy(current_state, buy_quantities)
 
         # Create the next state
         done = self.iteration == len(self.dataset) - 1

@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 import torch
 
-from portfolio_management_rl.datasets.dataset import StocksDataset
+from portfolio_management_rl.dataloaders.dataset import StocksDataset
 from portfolio_management_rl.market_environment.brokers import Trading212
 from portfolio_management_rl.market_environment.market_env import (
     MarketEnv,

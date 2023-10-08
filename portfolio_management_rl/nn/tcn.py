@@ -9,6 +9,11 @@ from torch.nn import functional as F
 from portfolio_management_rl.utils.logger import get_logger
 import math
 import torch
+from portfolio_management_rl.utils.contstants import (
+    N_STOCKS,
+    WINDOW_SIZE,
+    FORECAST_HORIZON,
+)
 
 logger = get_logger(__file__)
 
@@ -262,6 +267,7 @@ class TemporalAttentionPooling(nn.Module):
         super().__init__()
         self.num_features = num_features
         self.u1 = nn.Parameter(torch.randn(num_features))
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
         """
@@ -274,13 +280,16 @@ class TemporalAttentionPooling(nn.Module):
             Tensor containing the weighted sum of features across timesteps
         """
         # Calculate attention energies
-        energy = torch.exp(torch.matmul(x, self.u1))
-
-        # Calculate attention weights
-        energy_sum = torch.sum(energy, dim=1, keepdim=True)
-        attention_weights = energy / energy_sum
+        attention_weights = self.softmax(torch.matmul(x, self.u1))
 
         # Calculate weighted sum of features across timesteps
         weighted_sum = torch.sum(x * attention_weights.unsqueeze(-1), dim=1)
 
         return weighted_sum
+
+
+class BilinearPointwisePooling(nn.Module):
+    """
+    Performs pointwise pooling across the time dimension and another to the feature dimension.
+
+    """

@@ -3,8 +3,10 @@ This module implements a random agent. The purpose of this agent is to serve as
 a baseline to compare the performance of other agents.
 Additianally, it can be helpful reducing the suvivorship bias of the dataset. 
 """
-
+from typing import Dict, Union
+from gym.spaces.dict import Dict
 import numpy as np
+from torch import Tensor
 
 from portfolio_management_rl.market_environment.market_env import MarketEnvState
 from portfolio_management_rl.utils.contstants import N_STOCKS
@@ -22,6 +24,8 @@ class RandomAgent(BaseAgent):
     of one of the worst agents possible. So we can correct the performance of other agents by substracting the
     performance of the random agent.
     """
+
+    _name = "RandomAgent"
 
     def __init__(
         self,
@@ -51,6 +55,13 @@ class RandomAgent(BaseAgent):
             "remember": self.remember,
         }
 
+    @property
+    def name(self) -> str:
+        """
+        Returns the name of the agent
+        """
+        return self._name
+
     def act(self, state: MarketEnvState) -> dict:
         """
         Act method of the agent. It returns a random portfolio.
@@ -61,21 +72,29 @@ class RandomAgent(BaseAgent):
         Returns:
             dict: Portfolio to execute.
         """
-        rebalance = np.random.choice([True, False], p=[0.5, 0.5])
-
+        rebalance = np.random.uniform()
         if self.remember:
             # use the last portfolio as prior for the next portfolio
 
             port = np.random.dirichlet(self.portfolio + 1, size=1)[0]
-            self.portfolio = port * 1000 // 1
+
             return {"distribution": port, "rebalance": rebalance}
 
+        # mutlinomial
         port = np.random.dirichlet(np.ones(self.n_stocks + 1), size=1)[0]
-        self.portfolio = port * 1000 // 1
 
-        return {"distribution": self.portfolio, "rebalance": rebalance}
+        return {"distribution": port, "rebalance": rebalance}
 
     def reset(self) -> None:
+        pass
+
+    def update(
+        self,
+        state: MarketEnvState,
+        action: Dict,
+        reward: float,
+        next_state: MarketEnvState,
+    ) -> None:
         pass
 
 
@@ -107,11 +126,24 @@ class InsecureAgent(BaseAgent):
             "n_stocks": self.n_stocks,
         }
 
+    @property
+    def name(self) -> str:
+        """
+        Returns the name of the agent
+        """
+        return "InsecureAgent"
+
     def act(self, state: MarketEnvState) -> dict:
         agent = np.random.choice(self.agents)
         return agent.act(state)
 
-    def update(self, state: MarketEnvState):
+    def update(
+        self,
+        state: MarketEnvState,
+        action: Dict,
+        reward: float,
+        next_state: MarketEnvState,
+    ) -> None:
         pass
 
     def reset(self) -> None:

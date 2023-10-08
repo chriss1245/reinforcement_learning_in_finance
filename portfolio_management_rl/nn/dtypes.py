@@ -3,6 +3,8 @@ Custom data types for the deep learning
 """
 
 from dataclasses import dataclass
+from dataclasses import field
+from portfolio_management_rl.utils.dtypes import Device
 
 
 @dataclass
@@ -13,9 +15,11 @@ class TrainerState:
     """
 
     epoch: int = 0
-    metrics: dict
-    networks: dict
-    optimizers: dict
+    metrics: dict = field(default_factory=dict)
+    networks: dict = field(default_factory=dict)
+    optimizers: dict = field(default_factory=dict)
+    inputs: dict = field(default_factory=dict)
+    device: Device = Device.GPU
 
     def log_metrics(self, metrics: dict[str, float]):
         """

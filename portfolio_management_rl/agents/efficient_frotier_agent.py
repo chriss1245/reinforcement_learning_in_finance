@@ -31,6 +31,8 @@ class EfficientFrontierAgent(BaseAgent):
     that are on the efficient frontier. Also known as Markowitz Portfolio Optimization.
     """
 
+    _name = "EfficientFrontierAgent"
+
     def __init__(
         self,
         risk_free_rate: float = 0.02,
@@ -57,6 +59,7 @@ class EfficientFrontierAgent(BaseAgent):
 
         self.model: EfficientFrontier = None
         self.weights = None
+        self._name = f"EfficientFrontierAgent_{objective_function}"
 
     @property
     def parameters(self) -> dict:
@@ -69,6 +72,13 @@ class EfficientFrontierAgent(BaseAgent):
             "risk_matrix_method": self.risk_matrix_method,
             "objective_function": self.objective_function,
         }
+
+    @property
+    def name(self) -> str:
+        """
+        Returns the name of the agent.
+        """
+        return self._name
 
     def act(self, state: MarketEnvState) -> Dict:
         """
@@ -83,7 +93,7 @@ class EfficientFrontierAgent(BaseAgent):
 
         self.fit(state)
 
-        return {"distribution": self.weights, "rebalance": True}
+        return {"distribution": self.weights, "rebalance": 0.95}
 
     def update(
         self,
@@ -216,6 +226,8 @@ class EfficientSemivarianceAgent(BaseAgent):
     Insted of focusing in the sharpe ratio, it focuses on the sortino ratio.
     """
 
+    _name = "EfficientSemivarianceAgent"
+
     def __init__(
         self,
         desired_return: float = 0.2,
@@ -232,6 +244,8 @@ class EfficientSemivarianceAgent(BaseAgent):
         self.desired_return = desired_return
         self.method = method
 
+        self._name = f"EfficientSemivarianceAgent_{method}"
+
     @property
     def parameters(self) -> dict:
         """
@@ -241,6 +255,13 @@ class EfficientSemivarianceAgent(BaseAgent):
             "desired_return": self.desired_return,
             "method": self.method,
         }
+
+    @property
+    def name(self) -> str:
+        """
+        Returns the name of the agent.
+        """
+        return self._name
 
     def act(self, state: MarketEnvState) -> Dict:
         """
@@ -273,4 +294,4 @@ class EfficientSemivarianceAgent(BaseAgent):
 
         # add 0 for cash and convert to np.array
         weights = np.array(list(weights.values()) + [0])
-        return {"distribution": weights, "rebalance": True}
+        return {"distribution": weights, "rebalance": 0.95}

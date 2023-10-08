@@ -19,7 +19,6 @@ from portfolio_management_rl.utils.contstants import (
 from portfolio_management_rl.utils.dtypes import Phase
 from portfolio_management_rl.utils.logger import get_logger
 
-from .utils import PortfolioDistributionSpace
 
 logger = get_logger(__file__)
 
@@ -30,8 +29,14 @@ class MixUpConfig:
     Configuration for the mixup augmentation.
     """
 
-    mixup_sequences: tuple = ("close", "open", "mean", "mean_adj", "extreme_mean")
-    sequences_prob: tuple = (0.25, 0.25, 0.13, 0.12, 0.25)
+    mixup_sequences: tuple = (
+        "close",
+        "open",
+        "mean",
+        "extreme_mean",
+        "low",
+    )
+    sequences_prob: tuple = (0.2, 0.2, 0.2, 0.2, 0.2)
     mixup_alpha: float = 0.2
     mixup_prob: float = 0.5
 
@@ -52,6 +57,9 @@ class StocksDataset(Dataset):
         phase: Phase = Phase.TRAIN,
         step_size_days: float = FORECAST_HORIZON,
         offset: int = 0,
+        relative: bool = False,
+        y_sequence: bool = False,
+        random_permute: bool = False,
         mixup_config: Optional[MixUpConfig] = None,
     ):
         """
@@ -63,6 +71,12 @@ class StocksDataset(Dataset):
             forecast_horizon_days: Number of days to use as target.
             step_size_days: Number of days to jump between samples.
         """
+
+        self.relative = relative
+        self.y_sequence = y_sequence
+        self.random_permute = (
+            random_permute  # interchanges the order of the stocks in the dataset
+        )
 
         if mixup_config and phase != Phase.TRAIN:
             raise ValueError(
@@ -80,7 +94,11 @@ class StocksDataset(Dataset):
         # Main signal
         self.data = pd.read_csv(
             data_dir / "adj_close.csv", index_col=0, parse_dates=True
-        )
+        ).astype(np.float32)
+        # pass to float32 to save memory
+
+        # take out the last 3 years
+
         self.data = self.data.iloc[offset:]
         if self.data.isna().sum().sum() > 0:
             raise ValueError("The data contains nan values")
@@ -99,7 +117,7 @@ class StocksDataset(Dataset):
             for sequence in mixup_config.mixup_sequences:
                 self.mixup_data[sequence] = pd.read_csv(
                     data_dir / f"{sequence}.csv", index_col=0, parse_dates=True
-                )
+                ).astype(np.float32)
                 self.mixup_data[sequence] = self.mixup_data[sequence].iloc[offset:]
                 if self.mixup_data[sequence].isna().sum().sum() > 0:
                     raise ValueError("The data contains nan values")
@@ -109,14 +127,22 @@ class StocksDataset(Dataset):
 
     def __getitem__(self, idx):
         if idx >= self.len:
-            raise IndexError("Index out of range")
+            raise IndexError(f"Index {idx} out of range. Max ({self.len}))")
 
         idx *= self.step_size_days
-        x = self.data[
-            idx : idx + self.window_size
-        ].values.T  # observation_horizon_days days
+        x = self.data[idx : idx + self.window_size].values.T  # (n_stocks, window_size)
 
-        y = self.data[idx + self.jump_days - 1 : idx + self.jump_days].values.T  # 1 day
+        if self.y_sequence:
+            y = self.data[idx + self.window_size - 1 : idx + self.jump_days].values.T
+
+        else:
+            y = self.data[
+                idx + self.jump_days - 1 : idx + self.jump_days
+            ].values.T  # 1 day
+
+        if self.relative:
+            y = (y / x[:, :1]) - 1  # returns proportional to the first day
+            x = (x / x[:, :1]) - 1  # returns proportional to the first day
 
         if self.mixup_config and np.random.uniform() < self.mixup_config.mixup_prob:
             # Select a random sequence
@@ -125,19 +151,36 @@ class StocksDataset(Dataset):
                 p=self.mixup_config.sequences_prob,
             )
             x_mixup = self.mixup_data[sequence][idx : idx + self.window_size].values.T
-            y_mixup = self.mixup_data[sequence][
-                idx + self.jump_days - 1 : idx + self.jump_days
-            ].values.T
+
+            if self.y_sequence:
+                y_mixup = self.mixup_data[sequence][
+                    idx + self.window_size - 1 : idx + self.jump_days
+                ].values.T
+            else:
+                y_mixup = self.mixup_data[sequence][
+                    idx + self.jump_days - 1 : idx + self.jump_days
+                ].values.T
 
             # Mixup
-            x = (
-                self.mixup_config.mixup_alpha * x
-                + (1 - self.mixup_config.mixup_alpha) * x_mixup
+            alpha = np.random.beta(
+                self.mixup_config.mixup_alpha, self.mixup_config.mixup_alpha
             )
-            y = (
-                self.mixup_config.mixup_alpha * y
-                + (1 - self.mixup_config.mixup_alpha) * y_mixup
-            )
+
+            # discard mixup if the data has 0s in the first day
+            if np.any(y_mixup[:, 0] == 0) or np.any(x_mixup[:, 0] == 0):
+                alpha = 1
+
+            elif self.relative:
+                y_mixup = (y_mixup / x_mixup[:, :1]) - 1
+                x_mixup = (x_mixup / x_mixup[:, :1]) - 1
+
+            x = alpha * x + (1 - alpha) * x_mixup
+            y = alpha * y + (1 - alpha) * y_mixup
+
+        if self.random_permute:
+            perm = np.random.permutation(self.n_stocks)
+            x = x[perm]
+            y = y[perm]
 
         return x, y
 
@@ -168,23 +211,6 @@ class StocksDataset(Dataset):
         Returns the names of the companies in the dataset.
         """
         return self.companies
-
-    def get_action_observation_space(self) -> (gym.spaces.Box, gym.spaces.Box):
-        """
-        Returns the action and observation space for the environment.
-        """
-        # One proportion of capital per company + not invest
-        action_space = PortfolioDistributionSpace(
-            low=0, high=1, shape=(len(self.companies) + 1,)
-        )
-
-        # The observation space is the current price of each company (in dollars)
-        observation_space = gym.spaces.Box(
-            low=0,
-            high=1e7,
-            shape=(len(self.companies), self.window_size),
-        )
-        return action_space, observation_space
 
     @staticmethod
     def get_datasets(
@@ -222,3 +248,12 @@ class StocksDataset(Dataset):
                 "test": test_dataset,
             }
         return train_dataset, val_dataset, test_dataset
+
+
+if __name__ == "__main__":
+    dataset = StocksDataset(relative=True, y_sequence=True)
+    x, y = dataset[0]
+
+    print(x.shape)
+    print(y.shape)
+    print(x)

@@ -20,4 +20,12 @@ __pycache__
 #vscode
 .vscode
 
+#binaries
 bin
+
+#logs
+lightning_logs
+logs
+
+#models
+models

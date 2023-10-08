@@ -23,10 +23,9 @@ class EqualWeightAgent(BaseAgent):
     time step to have equal weights for all the companies in our portfolio.
     """
 
-    def __init__(
-        self,
-        rebalance: bool = True,
-    ):
+    _name = "EqualWeightAgent"
+
+    def __init__(self, rebalance: float = 0.6):
         """
         Initializes the agent.
 
@@ -38,9 +37,12 @@ class EqualWeightAgent(BaseAgent):
         self.weights = np.ones(shape=(N_STOCKS + 1,))
         self.weights[-1] = 0
         self.weights /= np.sum(self.weights)
-
-        self.rebalance = rebalance
+        self.rebalance_prob = rebalance
+        self.rebalance = rebalance > 0.5
         self.first_step = True
+
+        if self.rebalance:
+            self._name = "EqualWeightRebalanceAgent"
 
     @property
     def parameters(self) -> dict:
@@ -52,13 +54,18 @@ class EqualWeightAgent(BaseAgent):
             "rebalance": self.rebalance,
         }
 
+    @property
+    def name(self) -> str:
+        """
+        Returns the name of the agent.
+        """
+        return self._name
+
     def reset(self) -> None:
         """
         Resets the agent to its initial state.
         """
-        self.weights = np.ones(shape=(N_STOCKS + 1,))
-        self.weights[-1] = 0
-        self.weights /= np.sum(self.weights)
+
         self.first_step = True
 
     def act(self, state: MarketEnvState) -> Dict:
@@ -71,17 +78,29 @@ class EqualWeightAgent(BaseAgent):
         Returns:
             dict: Action dictionary.
         """
+        if state.balance > 500:
+            return {
+                "distribution": self.weights.copy(),
+                "rebalance": 0.6,
+            }
         if self.rebalance:
             self.first_step = False
-            return {"distribution": self.weights.copy(), "rebalance": True}
+            return {
+                "distribution": self.weights.copy(),
+                "rebalance": self.rebalance_prob,
+            }
 
         if self.first_step:
+            print("First step")
             self.first_step = False
-            return {"distribution": self.weights.copy(), "rebalance": True}
+            return {
+                "distribution": self.weights.copy(),
+                "rebalance": self.rebalance_prob,
+            }
         else:
             return {
                 "distribution": state.net_distribution.copy(),
-                "rebalance": False,
+                "rebalance": self.rebalance_prob,
             }
 
     def update(
@@ -92,11 +111,3 @@ class EqualWeightAgent(BaseAgent):
         next_state: MarketEnvState,
     ) -> None:
         pass
-
-    def log(self, metrics: Optional[dict] = None):
-        """
-        Logs the model in mlflow as a pyfunc
-        """
-
-        mlflow.log_metrics(metrics)
-        mlflow.log_params(self.parameters)

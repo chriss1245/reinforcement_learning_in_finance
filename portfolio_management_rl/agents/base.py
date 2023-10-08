@@ -9,6 +9,8 @@ import numpy as np
 from gym.spaces.dict import Dict
 from torch import Tensor
 
+from typing import Dict, Optional
+import mlflow
 from portfolio_management_rl.market_environment.market_env import MarketEnvState
 
 
@@ -53,18 +55,44 @@ class BaseAgent(ABC):
         Resets the agent to its initial state.
         """
 
-    @abstractmethod
-    def log(self, **kwargs) -> None:
-        """
-        Logs the agent in mlflow.
+    def log(
+        self,
+        metrics: Optional[Dict[str, float]],
+        tags: Optional[Dict[str, float]],
+        plots: Optional[Dict[str, np.ndarray]] = None,
+        **kwargs,
+    ) -> None:
+        # check that there is an active run
+        if mlflow.active_run() is None:
+            raise RuntimeError(
+                "No active run found. Please create a run before logging anything."
+            )
 
-        Args:
-            path (str): Path to log the agent to.
-        """
+        if metrics is None:
+            metrics = {}
+
+        mlflow.log_params(self.parameters)
+
+        if metrics:
+            mlflow.log_metrics(metrics)
+
+        tags = tags or {}
+        tags["agent"] = self.name
+        mlflow.set_tags(tags)
+
+        for name, plot in plots.items():
+            mlflow.log_figure(plot, name)
 
     @property
     @abstractmethod
     def parameters(self) -> dict:
         """
         Returns a Dictionary of parameters
+        """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """
+        Returns the name of the agent.
         """

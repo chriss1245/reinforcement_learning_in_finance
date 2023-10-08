@@ -88,8 +88,8 @@ class Processor:
         logger.info("Splitting the data into train, val and test.")
         df = datasets["close"]
         final_date = df[-1:].index[0]
-        initial_test_date = final_date - pd.DateOffset(years=self.years_test)
-        initial_val_date = initial_test_date - pd.DateOffset(years=self.years_val)
+        initial_test_date = final_date - pd.DateOffset(years=7)
+        initial_val_date = initial_test_date - pd.DateOffset(years=7)
 
         train_datasets = {}
         val_datasets = {}
@@ -99,11 +99,10 @@ class Processor:
 
             # the val and test set have an overalp of window_size in order to have the historical for the first state
             val_datasets[name] = df.loc[
-                initial_val_date
-                - pd.DateOffset(years=WINDOW_SIZE // YEAR_LEN) : initial_test_date
+                initial_val_date - pd.DateOffset(years=3) : initial_test_date
             ]
             test_datasets[name] = df.loc[
-                initial_test_date - pd.DateOffset(years=WINDOW_SIZE // YEAR_LEN) :
+                initial_test_date - pd.DateOffset(years=3) :
             ]  # 252 trading days in a year
 
         # Save the datasets

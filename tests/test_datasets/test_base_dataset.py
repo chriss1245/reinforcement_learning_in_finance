@@ -4,7 +4,7 @@ This module is in charge of testing the base dataset module and its mixup functi
 
 import unittest
 
-from portfolio_management_rl.datasets.dataset import MixUpConfig, StocksDataset
+from portfolio_management_rl.dataloaders.dataset import MixUpConfig, StocksDataset
 from portfolio_management_rl.utils.contstants import N_STOCKS, TESTS_DIR, WINDOW_SIZE
 from portfolio_management_rl.utils.dtypes import Phase
 

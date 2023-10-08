@@ -8,15 +8,13 @@ import torch.nn.functional as F
 from torch.distributions import Normal, Dirichlet, Beta
 from typing import Tuple
 from torch import Tensor
-from portfolio_management_rl.agents.deep_learning_agents.nn.tcn import (
+from portfolio_management_rl.nn.tcn import (
     TemporalConvNet,
     TemporalAttentionPooling,
 )
-from portfolio_management_rl.agents.deep_learning_agents.sac.trainers import (
-    SACTrainerV1,
-)
+from portfolio_management_rl.agents.sac.trainers import SACTrainerV2
 
-from portfolio_management_rl.market_environment.buffer import Buffer
+from portfolio_management_rl.dataloaders.buffer import Buffer
 from portfolio_management_rl.utils.contstants import (
     WINDOW_SIZE,
     FORECAST_HORIZON,
@@ -35,7 +33,6 @@ class StateEncoder(nn.Module):
 
     def __init__(
         self,
-        lr: float = 1e-3,
         seq_len: int = WINDOW_SIZE,
         input_size: int = N_STOCKS,
         dropout: float = 0.2,
@@ -45,7 +42,7 @@ class StateEncoder(nn.Module):
             input_size=input_size,
             kernel_size=3,
             num_filters=input_size,
-            dilation_base=2,
+            dilation_base=3,
             weight_norm=True,
             target_size=input_size + 1,
             dropout=0.2,
@@ -101,7 +98,7 @@ class StateEncoder(nn.Module):
         return state
 
 
-class CriticNetwork(nn.Module):
+class AttentionCriticNetwork(nn.Module):
     """
     Critic network for SAC: Q(s,a). Usually there will be two of these networks
     for stability reasons.
@@ -113,7 +110,6 @@ class CriticNetwork(nn.Module):
 
     def __init__(
         self,
-        lr: float = 1e-3,
         seq_len: int = WINDOW_SIZE,
         input_size: int = N_STOCKS,
         dropout: float = 0.2,
@@ -130,9 +126,10 @@ class CriticNetwork(nn.Module):
         super().__init__()
 
         self.seq_len = seq_len
+        self.input_size = input_size
 
         self.encoder = StateEncoder(
-            lr=lr, seq_len=seq_len, input_size=input_size, dropout=dropout
+            seq_len=seq_len, input_size=input_size, dropout=dropout
         )
 
         # Attention mechanism where q is the current portfolio, k is the current state representation
@@ -148,6 +145,26 @@ class CriticNetwork(nn.Module):
         self.swish = nn.SiLU()
         self.batch_norm = nn.BatchNorm1d(N_STOCKS + 1)
         self.dropout = nn.Dropout(dropout)
+
+    def get_input(
+        self, device: Device = Device.GPU
+    ) -> Tuple[Tuple[Tensor, Tensor], Tuple[Tensor, Tensor]]:
+        """
+        Returns the input that the network expects.
+        """
+
+        history = torch.randn(1, self.seq_len, N_STOCKS)
+        portfolio = torch.randn(1, N_STOCKS + 1)
+        new_portfolio = torch.randn(1, N_STOCKS + 1)
+        rebalance_prob = torch.randn(1, 1)
+
+        if device == Device.GPU:
+            history = history.to("cuda")
+            portfolio = portfolio.to("cuda")
+            new_portfolio = new_portfolio.to("cuda")
+            rebalance_prob = rebalance_prob.to("cuda")
+
+        return (history, portfolio), (new_portfolio, rebalance_prob)
 
     def forward(
         self, state: Tuple[Tensor, Tensor], action: Tuple[Tensor, Tensor]
@@ -199,7 +216,6 @@ class BilinearCriticNetwork(nn.Module):
 
     def __init__(
         self,
-        lr: float = 1e-3,
         seq_len: int = WINDOW_SIZE,
         input_size: int = N_STOCKS,
         dropout: float = 0.2,
@@ -215,8 +231,11 @@ class BilinearCriticNetwork(nn.Module):
         """
         super().__init__()
 
+        self.input_size = input_size
+        self.seq_len = seq_len
+
         self.encoder = StateEncoder(
-            lr=lr, seq_len=seq_len, input_size=input_size, dropout=dropout
+            seq_len=seq_len, input_size=input_size, dropout=dropout
         )
 
         # Attention mechanism where q is the current portfolio, k is the current state representation
@@ -225,15 +244,35 @@ class BilinearCriticNetwork(nn.Module):
             in1_features=N_STOCKS + 1,
             in2_features=N_STOCKS + 1,
             out_features=1,
-            bias=False,
+            bias=True,
         )
 
         # soft gate for the two Q values(keep and rebalance)
 
         self.swish = nn.SiLU()
 
-        self.batch_norm = nn.BatchNorm1d(N_STOCKS + 1)
+        self.batch_norm = nn.BatchNorm1d(1)
         self.dropout = nn.Dropout(dropout)
+
+    def get_input(
+        self, device: Device = Device.GPU
+    ) -> Tuple[Tuple[Tensor, Tensor], Tuple[Tensor, Tensor]]:
+        """
+        Returns the input that the network expects.
+        """
+
+        history = torch.randn(1, self.seq_len, N_STOCKS)
+        portfolio = torch.randn(1, N_STOCKS + 1)
+        new_portfolio = torch.randn(1, N_STOCKS + 1)
+        rebalance_prob = torch.randn(1, 1)
+
+        if device == Device.GPU:
+            history = history.to("cuda")
+            portfolio = portfolio.to("cuda")
+            new_portfolio = new_portfolio.to("cuda")
+            rebalance_prob = rebalance_prob.to("cuda")
+
+        return (history, portfolio), (new_portfolio, rebalance_prob)
 
     def forward(
         self, state: Tuple[Tensor, Tensor], action: Tuple[Tensor, Tensor]
@@ -258,78 +297,29 @@ class BilinearCriticNetwork(nn.Module):
 
         # Q(s, a_keep)
         q_keep = self.bilinear(state_, portfolio)
+        q_keep = self.swish(q_keep)
+        q_keep = self.batch_norm(q_keep)
 
         # Q(s, a_rebalance)
         q_rebalance = self.bilinear(state_, new_portfolio)
+        q_rebalance = self.swish(q_rebalance)
+        q_rebalance = self.batch_norm(q_rebalance)
 
         q_val = rebalance_prob * q_rebalance + (1 - rebalance_prob) * q_keep
 
         return q_val
 
 
-class ValueNetwork(nn.Module):
-    """
-    Value network for SAC: V(s). Usually there will be two of these networks
-    for stability reasons.
-    """
-
-    def __init__(
-        self,
-        lr: float = 1e-3,
-        seq_len: int = WINDOW_SIZE,
-        input_size: int = N_STOCKS,
-        dropout: float = 0.2,
-    ):
-        """
-        Initialize the network.
-
-        Args:
-            lr (float): Learning rate.
-            seq_len (int): Sequence length.
-            input_size (int): Input size.
-            output_size (int): Output size.
-        """
-        super().__init__()
-
-        self.encoder = StateEncoder(
-            lr=lr, seq_len=seq_len, input_size=input_size, dropout=dropout
-        )
-
-        self.value = nn.Linear(N_STOCKS + 1, 1, bias=False)
-
-        self.swish = nn.SiLU()
-
-    def forward(self, state: Tuple[Tensor, Tensor]) -> Tensor:
-        """
-        Forward pass of the network given the state.
-
-        Args:
-            state (tuple): Tuple containing the historical prices and the current portfolio. (batch_size, seq_len, input_size), (batch_size, input_size)
-
-        Returns:
-            torch.Tensor: Value.
-        """
-
-        state_ = self.encoder(state)  # (tensor, tensor) -> tensor
-
-        value = self.value(state_)
-
-        value = self.swish(value)
-
-        return value
-
-
-class ActorNetwork(nn.Module):
+class NormalActorNetwork(nn.Module):
     """
     Actor network for SAC: pi(s).
     """
 
     def __init__(
         self,
-        lr: float = 1e-3,
         seq_len: int = WINDOW_SIZE,
         input_size: int = N_STOCKS,
-        noise: float = 0.1,
+        noise: float = 0.001,
         dropout: float = 0.2,
     ):
         """
@@ -348,15 +338,33 @@ class ActorNetwork(nn.Module):
         self.seq_len = seq_len
 
         self.encoder = StateEncoder(
-            lr=lr, seq_len=seq_len, input_size=input_size, dropout=dropout
+            seq_len=seq_len, input_size=input_size, dropout=dropout
         )
 
         self.prob = nn.Linear(N_STOCKS + 1, N_STOCKS + 1, bias=False)
 
-        self.mu = nn.Linear(N_STOCKS + 1, N_STOCKS + 1, bias=False)
-        self.sigma = nn.Linear(N_STOCKS + 1, N_STOCKS + 1, bias=False)
+        self.mu_p = nn.Linear(N_STOCKS + 1, N_STOCKS + 1, bias=False)
+        self.sigma_p = nn.Linear(N_STOCKS + 1, N_STOCKS + 1, bias=False)
 
-        self.logsoftmax = nn.LogSoftmax(dim=-1)
+        self.mu_r = nn.Linear(N_STOCKS + 1, 1, bias=False)
+        self.sigma_r = nn.Linear(N_STOCKS + 1, 1, bias=False)
+
+        self.softmax = nn.Softmax(dim=-1)
+        self.epsilon = torch.finfo(torch.float32).eps
+
+    def get_input(self, device: Device = Device.GPU) -> Tuple[Tuple[Tensor, Tensor]]:
+        """
+        Returns the input that the network expects.
+        """
+
+        history = torch.randn(1, self.seq_len, N_STOCKS)
+        portfolio = torch.randn(1, N_STOCKS + 1)
+
+        if device == Device.GPU:
+            history = history.to("cuda")
+            portfolio = portfolio.to("cuda")
+
+        return ((history, portfolio),)
 
     def forward(self, state: Tuple[Tensor, Tensor]) -> Tensor:
         """
@@ -372,13 +380,17 @@ class ActorNetwork(nn.Module):
         state_ = self.encoder(state)  # (tensor, tensor) -> tensor
 
         hidden = self.prob(state_)
-        mu = self.mu(hidden)
-        sigma = self.sigma(hidden)
+        mu = self.mu_p(hidden)
+        sigma = self.sigma_p(hidden)
 
         # constrain the sigma to be between noise and 1
         sigma = torch.clamp(sigma, min=self.noise, max=1)
 
-        return mu, sigma
+        mu_r = self.mu_r(state_)
+        sigma_r = self.sigma_r(state_)
+        sigma_r = torch.clamp(sigma_r, min=self.noise, max=1)
+
+        return (mu, sigma), (mu_r, sigma_r)
 
     def sample(
         self, state: Tuple[Tensor, Tensor], reparametrize: bool = True
@@ -390,25 +402,30 @@ class ActorNetwork(nn.Module):
 
         """
 
-        mu, std = self.forward(state)
+        (mu, std), (mu_r, std_r) = self.forward(state)
 
         normal = Normal(mu, std)
+        normal_r = Normal(mu_r, std_r)
 
         if reparametrize:
             action = normal.rsample()
+            rebalance = normal_r.rsample()
 
         else:
             action = normal.sample()
+            rebalance = normal_r.sample()
 
-        # originally the action is passed through a tanh activation function
-        # but we need the softmax for the portfolio weights, so we are going to use
-        # the softmax. in order to do that, we first compte the log softmax which will
-        # give us the log probabilities of the portfolio weights (needed for the entropy regularization loss)
-        # and then we exponentiate the log softmax to get the probabilities of the portfolio weights
-        logprobs = self.logsoftmax(action)
-        action = torch.exp(logprobs)  # probs
+        action_ = self.softmax(action)
+        rebalance = torch.tanh(rebalance)
+        rebalance_logprobs = normal_r.log_prob(rebalance) - torch.log(
+            1 - rebalance**2 + self.epsilon
+        )
 
-        return action, logprobs
+        rebalance = 0.5 * rebalance + 0.5  # between 0 and 1
+
+        logprobs = torch.mean(normal.log_prob(action), -1, keepdim=True)  # log probs
+
+        return (action_, rebalance), logprobs + rebalance_logprobs
 
 
 class DirichletActorNetwork(nn.Module):
@@ -418,7 +435,6 @@ class DirichletActorNetwork(nn.Module):
 
     def __init__(
         self,
-        lr: float = 1e-3,
         seq_len: int = WINDOW_SIZE,
         input_size: int = N_STOCKS,
         noise: float = 0.1,
@@ -443,13 +459,13 @@ class DirichletActorNetwork(nn.Module):
 
         # state encoder
         self.encoder = StateEncoder(
-            lr=lr, seq_len=seq_len, input_size=input_size, dropout=dropout
+            seq_len=seq_len, input_size=input_size, dropout=dropout
         )
 
         # dense  hidden layer
         self.dense = nn.Sequential(
             nn.Linear(N_STOCKS + 1, N_STOCKS + 1),
-            nn.ReLU(),
+            nn.SiLU(),
             nn.BatchNorm1d(N_STOCKS + 1),
         )
 
@@ -458,11 +474,25 @@ class DirichletActorNetwork(nn.Module):
             nn.Linear(N_STOCKS + 1, N_STOCKS + 1), nn.ReLU()
         )
 
-        # alpha and beta parameters for the beta distribution
-        self.beta_head = nn.Sequential(nn.Linear(N_STOCKS + 1, 2), nn.ReLU())
+        # mu and sigma for the shrunk normal distribution for the rebalance flag
+        self.rebalance_head = nn.Sequential(nn.Linear(N_STOCKS + 1, 2), nn.ReLU())
 
         # small shift to avoid zero values
         self.epsilon = torch.finfo(torch.float32).eps
+
+    def get_input(self, device: Device = Device.GPU) -> Tuple[Tuple[Tensor, Tensor]]:
+        """
+        Returns the input that the network expects.
+        """
+
+        history = torch.randn(1, self.seq_len, N_STOCKS)
+        portfolio = torch.randn(1, N_STOCKS + 1)
+
+        if device == Device.GPU:
+            history = history.to("cuda")
+            portfolio = portfolio.to("cuda")
+
+        return ((history, portfolio),)
 
     def forward(self, state: Tuple[Tensor, Tensor]) -> Tensor:
         """
@@ -475,6 +505,8 @@ class DirichletActorNetwork(nn.Module):
             torch.Tensor: Value.
         """
 
+        prices, portfolio = state
+
         # encode the state
         state_ = self.encoder(state)  # (tensor, tensor) -> tensor
 
@@ -484,13 +516,13 @@ class DirichletActorNetwork(nn.Module):
         # pass the hidden layer through the alpha layer with relu activation and not normalization
         alpha_dirichlet = self.dirichlet_head(hidden) + self.epsilon
 
-        beta_params = self.beta_head(hidden) + self.epsilon
+        normal_params = self.rebalance_head(hidden) + self.epsilon
 
         # split the beta parameters into alpha and beta
-        alpha_beta = beta_params[:, 0].unsqueeze(-1)
-        beta = beta_params[:, 1].unsqueeze(-1)
+        mu = normal_params[:, 0].unsqueeze(-1)
+        sigma = normal_params[:, 1].unsqueeze(-1)
 
-        return alpha_dirichlet, (alpha_beta, beta)
+        return alpha_dirichlet, (mu, sigma)
 
     def sample(
         self, state: Tuple[Tensor, Tensor], reparametrize: bool = True
@@ -502,39 +534,43 @@ class DirichletActorNetwork(nn.Module):
 
         """
 
-        alpha_dirichlet, (alpha_beta, beta) = self.forward(state)
+        alpha_dirichlet, (mu, sigma) = self.forward(state)
 
         dirichlet = Dirichlet(alpha_dirichlet)
 
-        beta = Beta(alpha_beta, beta)
+        normal = Normal(mu, sigma)
 
         if reparametrize:
             portfolio = dirichlet.rsample()
-            rebalance = beta.rsample()
+            rebalance = normal.rsample()
 
         else:
             portfolio = dirichlet.sample()
-            rebalance = beta.sample()
+            rebalance = normal.sample()
 
-        # originally the action is distributed as normal distribution shrunk by a tanh activation function which makes the space a box
-        # but our actions are actually multinomial distributions in a simplex, so we are going to use a dirichlet distribution.
-        # also we include the rebalance flag as a beta distribution. This gives us a joint distribution of the portfolio weights and the rebalance flag
-        # which is a dirichlet-beta distribution. Assuming they are not correlated, we can compute the log probability of the joint distribution
-        # as the sum of the log probabilities of the marginal distributions.
+        rebalance_confidence = 0.5 * torch.tanh(rebalance) + 0.5  # between 0 and 1
 
-        logprobs = dirichlet.log_prob(portfolio) + beta.log_prob(rebalance)  # indepen
-        logprobs = torch.sum(logprobs, dim=-1, keepdim=True)
+        # assuming that the portfolio weights are independent of the rebalance flag
+        # we can compute the log probabilities of the portfolio weights and the rebalance flag
+        # separately and then sum them up
+
+        # log probabilities of the confidence is given by the log probability of the normal distribution
+        # plus the log probability of the 1/2 tanh function since the rebalance confidence is between 0 and 1
+        reb_conf_logprobs = normal.log_prob(rebalance) - 0.5 * torch.log(
+            1 - rebalance_confidence**2 + self.epsilon
+        )  # 1- 0.999 close to 0. -> log(0) = -inf -> log_prob(normal) - log(1-0.999) = inf
+
+        logprobs = dirichlet.log_prob(portfolio).unsqueeze(-1) + reb_conf_logprobs
 
         return (portfolio, rebalance), logprobs
 
 
 if __name__ == "__main__":
-    critic1 = BilinearCriticNetwork().to("cuda")
+    critic1 = AttentionCriticNetwork().to("cuda")
     critic2 = BilinearCriticNetwork().to("cuda")
-    value = ValueNetwork().to("cuda")
     dirichlet_actor = DirichletActorNetwork().to("cuda")
 
-    trainer = SACTrainerV1(dirichlet_actor, critic1, critic2, value)
+    trainer = SACTrainerV2(dirichlet_actor, critic1, critic2)
     b_size = 8
     state = (
         torch.randn(b_size, WINDOW_SIZE, N_STOCKS).to("cuda"),

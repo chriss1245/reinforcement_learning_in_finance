@@ -2,28 +2,34 @@
 This file contains the backtester class.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from tqdm import tqdm
 
 from portfolio_management_rl.agents.base import BaseAgent
-from portfolio_management_rl.market_environment.buffer import Buffer
+from portfolio_management_rl.dataloaders.buffer import Buffer
 from portfolio_management_rl.market_environment.market_env import MarketEnv
+from portfolio_management_rl.utils.dtypes import Phase
+
 from portfolio_management_rl.utils.logger import get_logger
+
+# import garbarge collector
+import gc
 
 logger = get_logger(__file__)
 
 
-class Backtester:
+class MATRIX:
     """
-    Backtester class, it uses an agent to trade in a market environment and returns the final portfolio value.
+    MATRIX: Multi-Agent Training and Review for Investment eXecution
+    Is the class which performs simulations for backtesting, and training agents.
     """
 
     def __init__(
         self,
-        agent: BaseAgent,
         market_env: MarketEnv,
+        validation_env: MarketEnv,
         episode_length: int = -1,
         verbose: bool = False,
     ):
@@ -38,8 +44,8 @@ class Backtester:
             buffer_relative_path: The relative path to the buffer.
             phase: The phase of the backtester.
         """
-        self.agent = agent
         self.market_env = market_env
+        self.validation_env = validation_env
         self.episode_length = episode_length
 
         if self.episode_length == -1:
@@ -47,7 +53,9 @@ class Backtester:
 
         self.verbose = verbose
 
-    def run(self) -> Dict[str, float]:
+    def backtest(
+        self, agent: BaseAgent, phase: Phase = Phase.TRAIN, start: int = 0
+    ) -> Dict[str, float]:
         """
         Run the backtester.
 
@@ -62,24 +70,47 @@ class Backtester:
         cashflows = []
         market_prices = []
         rewards = []
+        portfolios = []
+        rebalance_portfolios = []
+        rebalances = []
 
-        state = self.market_env.initial_state.copy()
+        if phase == Phase.TRAIN:
+            env = self.market_env
+        elif phase == Phase.VAL:
+            env = self.validation_env
+        else:  # pragma: no cover
+            raise ValueError("Invalid phase.")
+
+        env.reset()
+        env.change_start_point(start)
+        state = env.initial_state.copy()
+
+        agent.reset()
 
         # the cashflow is obtained later
 
-        for _ in tqdm(range(1, self.episode_length), desc="Backtesting"):
+        if self.episode_length == -1:
+            episode_length = len(env)
+        else:
+            episode_length = self.episode_length
+
+        for _ in tqdm(range(1, episode_length), desc="Backtesting"):
             market_prices.append(np.sum(state.prices))
             net_worths.append(state.net_worth)
+            portfolios.append(state.net_distribution)
 
-            action = self.agent.act(state)
-            new_state, reward, done, _, info = self.market_env.step(action)
+            action = agent.act(state)
+
+            rebalance_portfolios.append(action["distribution"])
+            rebalances.append(action["rebalance"])
+            new_state, reward, done, _, info = env.step(action)
 
             cashflows.append(info["cashflow"])
             rewards.append(reward)
 
+            state = new_state
             if done:
                 break
-            state = new_state
 
         market_prices.append(np.sum(state.prices))
         net_worths.append(state.net_worth)
@@ -95,33 +126,108 @@ class Backtester:
 
             logger.info("Backtester finished.")
 
-        return metrics, net_worths, cashflows, market_prices, rewards
+        return (
+            metrics,
+            net_worths,
+            cashflows,
+            market_prices,
+            rewards,
+            portfolios,
+            rebalances,
+        )
 
-    def generate_buffer(self) -> Buffer:
+    def experience_replay_training(
+        self,
+        agent: BaseAgent,
+        example_agent: Optional[BaseAgent] = None,
+        prefill: bool = False,
+        n_iterations: int = 10,
+    ) -> Dict[str, float]:
+        """
+        Train the agents using experience replay.
+
+        Args:
+            prefiling_agent: The agent used to generate the buffer initial buffer.
+        """
+
+        if self.verbose:
+            logger.info("Running the backtester.")
+
+        if example_agent is not None:
+            logger.info("Generating validation buffer.")
+            validation_buffer = self.generate_buffer(
+                example_agent, n_episodes=10, random=True, phase=Phase.VAL
+            )
+        else:
+            validation_buffer = None
+
+        if prefill and example_agent is not None:
+            if self.verbose:
+                logger.info("Pretraining the agent.")
+
+            prefilled_buffer = self.generate_buffer(
+                example_agent, n_episodes=10, random=True
+            )
+            agent.learn(prefilled_buffer, validation_buffer=validation_buffer)
+
+        gc.collect()
+
+        for episode in (pbar := tqdm(range(n_iterations), desc="Training")):
+            agent.reset()
+            self.market_env.reset()
+            pbar.set_postfix_str("Generating buffer.")
+            buffer = self.generate_buffer(agent, n_episodes=5, random=True)
+            pbar.set_postfix_str("Learning.")
+            agent.learn(buffer, validation_buffer=validation_buffer)
+
+            gc.collect()
+
+    def generate_buffer(
+        self, agent: BaseAgent, n_episodes=5, random=True, phase=Phase.TRAIN
+    ) -> Buffer:
         """
         Generates a buffer with the transitions of the backtester.
         """
 
+        if phase == Phase.TRAIN:
+            env = self.market_env
+        elif phase == Phase.VAL:
+            env = self.validation_env
+        else:
+            raise ValueError("Invalid phase.")
+
         if self.episode_length == -1:
-            self.episode_length = len(self.market_env)
+            episode_length = len(env)
+        else:
+            episode_length = self.episode_length
 
-        self.agent.reset()
-        self.market_env.reset()
+        env.reset()
 
-        buffer = Buffer(buffer_size=self.episode_length)
+        buffer_big = Buffer(buffer_size=1)
 
         state = self.market_env.initial_state.copy()
 
-        for _ in tqdm(range(1, self.episode_length), desc="Generating buffer"):
-            action = self.agent.act(state)
-            next_state, reward, done, _, _ = self.market_env.step(action)
+        for episode in range(n_episodes):
+            starting_point = episode
+            if random:
+                starting_point = np.random.randint(episode, len(env))
 
-            buffer.add(state=state, action=action, reward=reward, next_state=next_state)
-            if done:
-                break
-            state = next_state
+            buffer = Buffer(buffer_size=episode_length - starting_point + 1)
+            env.change_start_point(starting_point)
+            agent.reset()
+            done = False
+            while not done:
+                action = agent.act(state)
+                next_state, reward, done, _, _ = env.step(action)
 
-        return buffer
+                buffer.add(
+                    state=state, action=action, reward=reward, next_state=next_state
+                )
+                state = next_state
+
+            buffer_big.merge(buffer)
+
+        return buffer_big
 
     def get_metrics(
         self,
@@ -212,25 +318,41 @@ class Backtester:
             "alpha": alpha,
             "market_djusted_return": market_adjusted_return,
             "information_ratio": information_ratio,
-            "sharpe_adjusted_reward": sharpe_adjusted_reward,
-            "sortino_adjusted_reward": sortino_adjusted_reward,
-            "total_reward": total_reward,
+            # "sharpe_adjusted_reward": sharpe_adjusted_reward,
+            # "sortino_adjusted_reward": sortino_adjusted_reward,
             "avg_reward": avg_reward,
-            "std_reward": std_reward,
+            # "std_reward": std_reward,
         }
 
         return metrics
 
 
 if __name__ == "__main__":
-    from portfolio_management_rl.datasets.dataset import StocksDataset
+    from portfolio_management_rl.dataloaders.dataset import StocksDataset, MixUpConfig
 
     dataset = StocksDataset()
     market_env = MarketEnv(dataset=dataset)
+
+    validation_dataset = StocksDataset(phase=Phase.VAL)
+    validation_env = MarketEnv(dataset=validation_dataset)
     from portfolio_management_rl.agents.equal_weight_agent import EqualWeightAgent
+    from portfolio_management_rl.agents import RandomAgent
+    from portfolio_management_rl.agents.efficient_frotier_agent import (
+        EfficientFrontierAgent,
+    )
+    from portfolio_management_rl.agents.sac.sac_agent import SACAgent
+    from portfolio_management_rl.utils.contstants import PROJECT_DIR
 
-    agent = EqualWeightAgent(rebalance=True)
-    backtester = Backtester(agent, market_env, verbose=True)
-    backtester.run()
+    example_agent = RandomAgent()
+    # the second one does not serve
+    agent = SACAgent(
+        actor="normal",
+        critic="bilinear",
+        # encoder_path=None,
+        freeze_encoder=True,
+        # checkpoint_path=PROJECT_DIR / "logs/trial1/checkpoints/m1.4383_e000"
+    )
 
-    backtester.generate_buffer()
+    matrix = MATRIX(market_env, validation_env, verbose=True)
+    matrix.experience_replay_training(agent, example_agent, prefill=False)
+    matrix.backtest(agent)

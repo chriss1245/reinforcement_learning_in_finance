@@ -5,8 +5,8 @@ Callbacks for the neural network.
 from abc import ABC, abstractmethod
 from typing import Optional, Union
 
-from portfolio_management_rl.agents.deep_learning_agents.nn.dtypes import TrainerState
-from portfolio_management_rl.agents.deep_learning_agents.nn.utils import (
+from portfolio_management_rl.nn.dtypes import TrainerState
+from portfolio_management_rl.nn.utils import (
     save_checkpoint,
     load_checkpoint,
 )
@@ -82,14 +82,14 @@ class EarlyStoping(BaseCallback):
 
     def on_epoch_end(self, state: TrainerState) -> None:
         if self.is_loss:
-            if state.metrics[self.monitor] < self.best:
-                self.best = state.metrics[self.monitor]
+            if state.metrics[self.monitor][-1] < self.best:
+                self.best = state.metrics[self.monitor][-1]
                 self.patience_counter = 0
             else:
                 self.patience_counter += 1
         else:
-            if state.metrics[self.monitor] > self.best:
-                self.best = state.metrics[self.monitor]
+            if state.metrics[self.monitor][-1] > self.best:
+                self.best = state.metrics[self.monitor][-1]
                 self.patience_counter = 0
             else:
                 self.patience_counter += 1
@@ -108,7 +108,7 @@ class Checkpoint(BaseCallback):
     def __init__(
         self,
         checkpoints_dir: Path,
-        best_only: bool = True,
+        best_only: bool = False,
         monitor: Optional[str] = None,
         is_loss: Optional[bool] = True,
     ):
@@ -124,20 +124,21 @@ class Checkpoint(BaseCallback):
         pass
 
     def on_epoch_end(self, state: TrainerState) -> None:
-        if self.monitor is not None:
+        """
+        if self.monitor is not None and self.best_only:
             if self.is_loss:
-                if state.metrics[self.monitor] < self.best:
-                    self.best = state.metrics[self.monitor]
+                if state.metrics[self.monitor][-1] < self.best:
+                    self.best = state.metrics[self.monitor][-1]
                 else:
                     return
             else:
-                if state.metrics[self.monitor] > self.best:
-                    self.best = state.metrics[self.monitor]
+                if state.metrics[self.monitor][-1] > self.best:
+                    self.best = state.metrics[self.monitor][-1]
                 else:
                     return
-
+        """
         dir_ = self.checkpoints_dir / self.checkpoint_dir.format(
-            epoch=state.epoch, metric=state.metrics[self.monitor]
+            epoch=state.epoch, metric=state.metrics[self.monitor][-1]
         )
 
         dir_.mkdir(exist_ok=True)
@@ -196,12 +197,15 @@ class ReduceLROnPlateauCallback(BaseCallback):
 
     def on_epoch_end(self, state: TrainerState) -> None:
         for name, scheduler in self.schedulers.items():
-            scheduler.step(state.metrics[self.monitor[name]])
+            if isinstance(self.monitor, str):
+                scheduler.step(state.metrics[self.monitor][-1])
+            else:
+                scheduler.step(state.metrics[self.monitor[name]][-1])
 
 
 class Tensorboard(BaseCallback):
     """
-    Tensorboard callback to log the metrics
+    Tensorboard callback to log the metrics, also checkpoints the model
     """
 
     def __init__(self, log_dir: Path = LOGS_DIR, experiment_name: str = "experiment"):
@@ -214,9 +218,19 @@ class Tensorboard(BaseCallback):
         self.log_dir = log_dir
         self.writer = SummaryWriter(log_dir)
 
+        self.checkpoint = Checkpoint(
+            log_dir / "checkpoints", monitor="val_loss", is_loss=True
+        )
+
     def on_epoch_start(self, state: TrainerState) -> None:
-        pass
+        self.checkpoint.on_epoch_start(state)
 
     def on_epoch_end(self, state: TrainerState) -> None:
+        self.checkpoint.on_epoch_end(state)
+
         for key, value in state.get_last_metrics().items():
             self.writer.add_scalar(key, value, state.epoch)
+
+        if state.epoch == 0:
+            for name, model in state.networks.items():
+                self.writer.add_graph(model, model.get_input())

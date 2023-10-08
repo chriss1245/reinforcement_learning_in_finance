@@ -70,7 +70,7 @@ class Trading212(Broker):
         quantity = (
             state.balance
             * proportions
-            / (state.prices * (1 + self.fx_proportion) + PRICE_EPSILON + 1e-6)
+            / (state.prices * (1 + self.fx_proportion) + PRICE_EPSILON + 1e-5)
         )
         return quantity
 
@@ -87,7 +87,7 @@ class Trading212(Broker):
 
         if isinstance(quantity, torch.Tensor):
             total_price = torch.sum(
-                quantity * (state.prices * (1 + self.fx_proportion) + PRICE_EPSILON)
+                quantity * (state.prices * (1 + self.fx_proportion) + PRICE_EPSILON * 1)
             )
 
             if total_price > state.balance:
@@ -103,7 +103,12 @@ class Trading212(Broker):
         )
 
         if total_price > state.balance:
-            raise ValueError("Not enough balance to buy the stocks.")
+            if state.balance < 0.0000001:
+                state.balance = 0
+                return 0
+            raise ValueError(
+                f"Balance: {state.balance} is not enough to buy Price: {total_price}"
+            )
 
         state.balance = state.balance - total_price
         state.shares = state.shares + quantity
